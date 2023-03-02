@@ -135,6 +135,19 @@ class LoginSuccessPacket(Packet):
                                          _encode_string(str(player_uuid)) + # _encode_varint(len(player_uuid.bytes)) + _encode_uuid(player_uuid) +
                                          _encode_string(self.name))
 
+class LoginPlayPacket(Packet):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    async def reply(self, writer, data=None):
+        await super().reply(writer, data=_encode_varint(1) +
+                                         _encode_varint(-1) + # player entity id
+                                         _encode_unsigned_byte(0) + # gamemode, 0=survival, 1=creative
+                                         _encode_byte(0) + # dimension, -1=nether, 0=overworld, 1=end
+                                         _encode_unsigned_byte(0) + # difficulty, 0=peaceful
+                                         _encode_unsigned_byte(5) + # max players
+                                         _encode_string("flat")) # level type
+
 class MinecraftProtocol(asyncio.StreamReaderProtocol):
     _transport = None
 
@@ -196,6 +209,7 @@ class MinecraftProtocol(asyncio.StreamReaderProtocol):
     async def handle_login(self):
         conn_info = await self.read_packet(LoginStartPacket)
         await self.write_packet(LoginSuccessPacket(conn_info.name))
+        await self.write_packet(LoginPlayPacket())
 
     def close(self):
         if self._transport:
@@ -260,11 +274,16 @@ async def _decode_boolean(stream):
     raw_bytes = await stream.read(1)
     return struct.unpack('>?', raw_bytes)[0]
 
-def _encode_uuid(value: uuid.UUID):
-    max_int64 = 0xFFFFFFFFFFFFFFFF
-    return struct.pack('>QQ', (value.int >> 64) & max_int64, value.int & max_int64)
+def _encode_unsigned_byte(value):
+    return struct.pack('>B', value)
 
-async def _decode_uuid(stream):
-    raw_bytes = await stream.read(16)
-    a, b     = struct.unpack('>QQ', raw_bytes)
-    return (a << 64) | b
+async def _decode_unsigned_byte(stream):
+    raw_bytes = await stream.read(1)
+    return struct.unpack('>B', raw_bytes)[0]
+
+def _encode_byte(value):
+    return struct.pack('>b', value)
+
+async def _decode_byte(stream):
+    raw_bytes = await stream.read(1)
+    return struct.unpack('>b', raw_bytes)[0]
