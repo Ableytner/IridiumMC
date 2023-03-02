@@ -3,6 +3,7 @@ import logging
 import time
 import json
 import os
+import traceback
 from time import sleep
 
 from protocol import MinecraftProtocol, HandshakePacket, StatusRequestPacket, StatusResponsePacket, PingRequestPacket, PingResponsePacket
@@ -35,6 +36,11 @@ class IridiumServer():
             return
         elif conn_info.is_login_next():
             logging.debug("Login...")
+            try:
+                await mcprot.handle_login()
+            except Exception:
+                print(traceback.format_exc())
+            logging.debug("finished login")
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
 

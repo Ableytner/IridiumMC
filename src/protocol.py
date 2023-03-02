@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import struct
+import uuid
 
 DEFAULT_PROTOCOL_VERSION = 47
 STATUS_STATE = 1
@@ -112,6 +113,27 @@ class PingResponsePacket(Packet):
         await super().reply(writer, data=_encode_varint(1) +
                                                _encode_long(self.time))
 
+class LoginStartPacket(Packet):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.name = None
+
+    async def load(self):
+        self.name = await _decode_string(self.stream)
+        # self.has_player_uuid = await _decode_boolean(self.stream)
+        # if self.has_player_uuid:
+        #     self.player_uuid = await _decode_uuid(self.stream)
+
+class LoginSuccessPacket(Packet):
+    def __init__(self, name, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+
+    async def reply(self, writer, data=None):
+        player_uuid = uuid.uuid4()
+        await super().reply(writer, data=_encode_varint(2) +
+                                         _encode_string(str(player_uuid)) + # _encode_varint(len(player_uuid.bytes)) + _encode_uuid(player_uuid) +
+                                         _encode_string(self.name))
 
 class MinecraftProtocol(asyncio.StreamReaderProtocol):
     _transport = None
@@ -171,6 +193,10 @@ class MinecraftProtocol(asyncio.StreamReaderProtocol):
         yield from self.write_packet(PingResponsePacket(time=ping.time))
         self.close()
 
+    async def handle_login(self):
+        conn_info = await self.read_packet(LoginStartPacket)
+        await self.write_packet(LoginSuccessPacket(conn_info.name))
+
     def close(self):
         if self._transport:
             self._transport.close()
@@ -203,15 +229,15 @@ async def _decode_varint(stream):
             total = total - (1 << 32)
     return total
 
-async def _decode_string(stream):
-    varint = await _decode_varint(stream)
-    b = await stream.read(varint)
-    return b.decode(encoding='UTF-8')
-
 def _encode_string(value):
     data = value.encode('utf-8')
     # noinspection PyArgumentList
     return _encode_varint(len(data)) + data
+
+async def _decode_string(stream):
+    varint = await _decode_varint(stream)
+    b = await stream.read(varint)
+    return b.decode(encoding='UTF-8')
 
 def _encode_unsigned_short(value):
     return struct.pack('>H', value)
@@ -226,3 +252,19 @@ def _encode_long(value):
 async def _decode_long(stream):
     raw_bytes = await stream.read(8)
     return struct.unpack('>q', raw_bytes)[0]
+
+def _encode_boolean(value):
+    return struct.pack('>?', value)
+
+async def _decode_boolean(stream):
+    raw_bytes = await stream.read(1)
+    return struct.unpack('>?', raw_bytes)[0]
+
+def _encode_uuid(value: uuid.UUID):
+    max_int64 = 0xFFFFFFFFFFFFFFFF
+    return struct.pack('>QQ', (value.int >> 64) & max_int64, value.int & max_int64)
+
+async def _decode_uuid(stream):
+    raw_bytes = await stream.read(16)
+    a, b     = struct.unpack('>QQ', raw_bytes)
+    return (a << 64) | b
