@@ -6,7 +6,11 @@ import os
 import traceback
 from time import sleep
 
-from protocol import MinecraftProtocol, HandshakePacket, StatusRequestPacket, StatusResponsePacket, PingRequestPacket, PingResponsePacket
+from network.protocol import MinecraftProtocol
+from network.packets import HandshakePacket, ChunkDataPacket
+from core.worldgen import WorldGenerator
+from dataclass.save import World
+from dataclass.position import Position
 
 BUFFER_SIZE = 65536
 
@@ -36,11 +40,19 @@ class IridiumServer():
             return
         elif conn_info.is_login_next():
             logging.debug("Login...")
+            await mcprot.handle_login()
+            logging.debug("finished login")
+
+            logging.info("creating world...")
             try:
-                await mcprot.handle_login()
+                w = World(0)
+                wg = WorldGenerator("flat", w)
+                wg.generate_start_region(Position(0, 0, 0))
+                await mcprot.write_packet(ChunkDataPacket(*wg.world.chunks[0][0].to_packet_data()))
             except Exception:
                 print(traceback.format_exc())
-            logging.debug("finished login")
+            logging.info(f"done, created {len(wg.world.chunks)} chunks")
+            logging.info(f"player spawn block: {wg.world.chunks[-32][16].blocks[14][10][3]}")
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
 
