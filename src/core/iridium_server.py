@@ -7,7 +7,7 @@ import traceback
 from time import sleep
 
 from network.protocol import MinecraftProtocol
-from network.packets import HandshakePacket, ChunkDataPacket
+from network.packets import HandshakePacket, MapChunkBulkPacket
 from core.worldgen import WorldGenerator
 from dataclass.save import World
 from dataclass.position import Position
@@ -48,11 +48,11 @@ class IridiumServer():
                 w = World(0)
                 wg = WorldGenerator("flat", w)
                 wg.generate_start_region(Position(0, 0, 0))
-                await mcprot.write_packet(ChunkDataPacket(*wg.world.chunks[0][0].to_packet_data()))
+                await mcprot.write_packet(MapChunkBulkPacket(*wg.world.to_packet_data(0, 0)))
             except Exception:
                 print(traceback.format_exc())
-            logging.info(f"done, created {len(wg.world.chunks)} chunks")
-            logging.info(f"player spawn block: {wg.world.chunks[-32][16].blocks[14][10][3]}")
+            logging.info(f"done, created {len(wg.world.chunk_columns)} chunks")
+            logging.info(f"player spawn block: {wg.world.chunk_columns[-32][16].blocks[14][10][3]}")
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
 

@@ -143,18 +143,19 @@ class LoginPlayPacket(Packet):
                                          binary_operations._encode_unsigned_byte(5) + # max players
                                          binary_operations._encode_string("flat")) # level type
 
-class ChunkDataPacket(Packet):
-    def __init__(self, chunk_data_len: int=0, chunk_data: bytes=b"", **kwargs):
+class MapChunkBulkPacket(Packet):
+    def __init__(self, chunk_column_count: int, data_len: int, sky_light: bool, data: bytes, metadata: bytes, **kwargs):
         super().__init__(**kwargs)
-        self.chunk_data_len = chunk_data_len
-        self.chunk_data = chunk_data
+        self.chunk_column_count = chunk_column_count
+        self.data_len = data_len
+        self.sky_light = sky_light
+        self.data = data
+        self.metadata = metadata
 
     async def reply(self, writer, data=None):
-        await super().reply(writer, data=binary_operations._encode_varint(21) +
-                                         binary_operations._encode_int(0) + # chunk x coord
-                                         binary_operations._encode_int(0) + # chunk z coord
-                                         binary_operations._encode_boolean(True) +
-                                         binary_operations._encode_unsigned_short(0b1111111111111111) + #0b0000000000000001 # bitmap representing which chunk data is included, 0=all air, 1=include data
-                                         binary_operations._encode_unsigned_short(0) +
-                                         binary_operations._encode_int(self.chunk_data_len) + # compressed chunk data size
-                                         self.chunk_data)
+        await super().reply(writer, data=binary_operations._encode_varint(0x26) +
+                                         binary_operations._encode_short(self.chunk_column_count) +
+                                         binary_operations._encode_int(self.data_len) +
+                                         binary_operations._encode_boolean(self.sky_light) +
+                                         self.data +
+                                         self.metadata)

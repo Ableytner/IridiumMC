@@ -25,16 +25,13 @@ class Chunk():
     z: int
     blocks: dict[int, dict[int, dict[int, Block|None]]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(dict)))
 
-    def to_packet_data(self) -> tuple[int, bytes]:
-        data = b""
-        i = 0
-
-        block_type = []
-        block_metadata = []
-        block_light = []
-        sky_light = []
-        add = []
-        biome = []
+    def to_packet_data(self) -> tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
+        block_types = []
+        block_metadatas = []
+        block_lights = []
+        sky_lights = []
+        adds = []
+        biomes = []
 
         for chunk_c in range(16):
             for y in range(chunk_c, chunk_c + 16):
@@ -45,28 +42,66 @@ class Chunk():
                         except KeyError:
                             block = Block.air()
 
-                        data += binary_operations._encode_unsigned_byte(block.block_id)
-                        data += binary_operations._encode_unsigned_byte(0b00001000)
-                        data += binary_operations._encode_unsigned_byte(0b11110000)
-                        i += 1
+                        block_types.append(block.block_id)
+                        block_metadatas.append(0b0000)
+                        block_lights.append(0b1000)
+                        sky_lights.append(0b1111)
+                        adds.append(0b0000)
+                    biomes.append(1)
 
-                        block_type.append(binary_operations._encode_byte(block.block_id))
-                        block_metadata.append(0b0000)
-                        block_light.append(0b1000)
-                        sky_light.append(0b1111)
-                        add.append(0b0000)
-                    biome.append(binary_operations._encode_byte(1))
+        block_type = b""
+        block_metadata = b""
+        block_light = b""
+        sky_light = b""
+        add = b""
+        biome = b""
+        for c in range(len(block_types)):
+            block_type += binary_operations._encode_byte(block_types[c])
+            if c % 2 != 0:
+                block_metadata += binary_operations._encode_nibbles(block_metadatas[c-1], block_metadatas[c])
+                block_light += binary_operations._encode_nibbles(block_lights[c-1], block_lights[c])
+                sky_light += binary_operations._encode_nibbles(sky_lights[c-1], sky_lights[c])
+                # add += binary_operations._encode_nibbles(adds[c-1], adds[c])
+            if c % 16 == 0:
+                biome += binary_operations._encode_byte(biomes[int(c/16)])
 
-        for block_data in [block_type, block_metadata, block_light, sky_light, add, biome]:
-            pass
-            # temp_data = b"".join(block_data)
-            # data += binary_operations._encode_varint(len(block_data)) + temp_data
+        return (block_type, block_metadata, block_light, sky_light, add, biome)
 
-        zlibbed_str = zlib.compress(data)
-        compressed_string = zlibbed_str[2:-4]
-        return i, compressed_string
+@dataclass
+class ChunkColumn():
+    chunks: dict[int, Chunk] = field(default_factory=lambda: {})
+
+    def to_packet_data(self) -> tuple[int, int, bool, bytes, bytes]:
+        block_type = b""
+        block_metadata = b""
+        block_light = b""
+        sky_light = b""
+        add = b""
+        biome = b""
+
+        for c in range(16):
+            chunk_data = self.chunks[c].to_packet_data()
+            block_type += chunk_data[0]
+            block_metadata += chunk_data[1]
+            block_light += chunk_data[2]
+            sky_light += chunk_data[3]
+            add += chunk_data[4]
+            biome += chunk_data[5]
+
+        zlibbed_str = zlib.compress(block_type + block_metadata + block_light + sky_light + add + biome)
+        data_compressed = zlibbed_str[2:-4]
+        data_len = len(data_compressed)
+
+        metadata = binary_operations._encode_int(self.chunks[0].x) # chunk x
+        metadata += binary_operations._encode_int(self.chunks[0].z) # chunk z
+        metadata += binary_operations._encode_unsigned_short(0b1111111111111111) # primary bitmap, all 1 to send all chunks
+        metadata += binary_operations._encode_unsigned_short(0b0000000000000000) # add bitmap, all empty
+        return (1, data_len, True, data_compressed, metadata)
 
 @dataclass
 class World():
     dim_id: int
-    chunks: dict[int, dict[int, Chunk|None]] = field(default_factory=lambda: defaultdict(dict))
+    chunk_columns: dict[int, dict[int, ChunkColumn|None]] = field(default_factory=lambda: defaultdict(dict))
+
+    def to_packet_data(self, chunk_x: int, chunk_z: int):
+        return self.chunk_columns[chunk_x][chunk_z].to_packet_data()
