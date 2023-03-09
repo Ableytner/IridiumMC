@@ -89,7 +89,7 @@ class ChunkColumn():
             biome += chunk_data[5]
 
         zlibbed_str = zlib.compress(block_type + block_metadata + block_light + sky_light + add + biome)
-        data_compressed = zlibbed_str[2:-4]
+        data_compressed = zlibbed_str
         data_len = len(data_compressed)
 
         metadata = binary_operations._encode_int(self.chunks[0].x) # chunk x
@@ -102,6 +102,13 @@ class ChunkColumn():
 class World():
     dim_id: int
     chunk_columns: dict[int, dict[int, ChunkColumn|None]] = field(default_factory=lambda: defaultdict(dict))
+    
+    def chunk_column_count(self) -> int:
+        c = 0
+        for item in self.chunk_columns.values():
+            for item2 in item.values():
+                c += 1
+        return c
 
     def to_packet_data(self, chunk_x: int, chunk_z: int):
         return self.chunk_columns[chunk_x][chunk_z].to_packet_data()

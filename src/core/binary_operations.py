@@ -63,6 +63,20 @@ async def _decode_long(stream) -> int:
     raw_bytes = await stream.read(8)
     return struct.unpack('>q', raw_bytes)[0]
 
+def _encode_float(value) -> bytes:
+    return struct.pack('>f', value)
+
+async def _decode_float(stream):
+    raw_bytes = await stream.read(4)
+    return struct.unpack('>f', raw_bytes)[0]
+
+def _encode_double(value) -> bytes:
+    return struct.pack('>d', value)
+
+async def _decode_double(stream):
+    raw_bytes = await stream.read(8)
+    return struct.unpack('>d', raw_bytes)[0]
+
 def _encode_boolean(value) -> bytes:
     return struct.pack('>?', value)
 

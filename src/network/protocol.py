@@ -70,7 +70,7 @@ class MinecraftProtocol(asyncio.StreamReaderProtocol):
     async def handle_login(self):
         conn_info = await self.read_packet(packets.LoginStartPacket)
         await self.write_packet(packets.LoginSuccessPacket(conn_info.name))
-        await self.write_packet(packets.LoginPlayPacket())
+        await self.write_packet(packets.JoinGamePacket())
 
     def close(self):
         if self._transport:
