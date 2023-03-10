@@ -51,13 +51,12 @@ class IridiumServer():
 
             try:
                 await mcprot.write_packet(packets.PlayerPositionAndLook(Position(0, 10, 0), (0, 0)))
-                sleep(5)
-                logging.info("Sending spawn region data...")
                 #for x in range(-(4*16), 4*16, 16):
                 #    for z in range(-(4*16), 4*16, 16):
-                await mcprot.write_packet(packets.MapChunkBulkPacket(*self.world.to_packet_data(0, 0)))
+                logging.info("Generating chunk data...")
+                chunk_data = self.world.to_packet_data(0, 0) # takes a few seconds
                 logging.info("Done")
-                pass
+                await mcprot.write_packet(packets.MapChunkBulkPacket(*chunk_data))
             except Exception:
                 print(traceback.format_exc())
         else:
