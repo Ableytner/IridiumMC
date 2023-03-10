@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 
-from iridium_server import IridiumServer
+from core.iridium_server import IridiumServer
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
