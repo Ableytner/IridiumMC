@@ -33,7 +33,7 @@ class IridiumServer():
         logging.info("creating world...")
         wg = WorldGenerator("flat", self.world)
         wg.generate_start_region(Position(0, 0, 0))
-        logging.info(f"done, created {self.world.chunk_column_count()} spawn chunks")
+        logging.info(f"done")
 
     async def _handle_client(self, client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter):
         logging.debug("Client connected!")
@@ -51,12 +51,12 @@ class IridiumServer():
 
             try:
                 await mcprot.write_packet(packets.PlayerPositionAndLook(Position(0, 10, 0), (0, 0)))
-                #for x in range(-(4*16), 4*16, 16):
-                #    for z in range(-(4*16), 4*16, 16):
                 logging.info("Generating chunk data...")
-                chunk_data = self.world.to_packet_data(0, 0) # takes a few seconds
+                for x in range(-1, 2):
+                    for z in range(-1, 2):
+                        chunk_data = self.world.to_packet_data(x, z)
+                        await mcprot.write_packet(packets.MapChunkBulkPacket(*chunk_data))
                 logging.info("Done")
-                await mcprot.write_packet(packets.MapChunkBulkPacket(*chunk_data))
             except Exception:
                 print(traceback.format_exc())
         else:

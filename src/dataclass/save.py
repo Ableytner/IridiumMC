@@ -8,22 +8,24 @@ from core import binary_operations
 
 @dataclass
 class Block():
-    pos: Position
     block_id: int
-
-    @property
-    def chunk_pos(self) -> Position:
-        return Position(self.pos.x % 16, self.pos.y, self.pos.z % 16)
 
     @staticmethod
     def air() -> Block:
-        return Block(Position(0, 0, 0), 0)
+        return Block(0)
 
 @dataclass
 class Chunk():
-    x: int
-    z: int
-    blocks: dict[int, dict[int, dict[int, Block|None]]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(dict)))
+    blocks: dict[int, Block|None] = field(default_factory=lambda: {})
+
+    def set_block(self, pos: Position, block: Block) -> None:
+        self.blocks[self._pos_to_int(pos)] = block
+    
+    def get_block(self, pos: Position) -> Block:
+        block_pos = self._pos_to_int(pos)
+        if not block_pos in self.blocks.keys():
+            return Block.air()
+        return self.blocks[self._pos_to_int(pos)]
 
     def to_packet_data(self) -> tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
         block_types = []
@@ -38,13 +40,13 @@ class Chunk():
                 for z in range(16):
                     for x in range(16):
                         try:
-                            block = self.blocks[x][y][z]
+                            block = self.blocks[self._pos_to_int(Position(x, y, z))]
                         except KeyError:
                             block = Block.air()
 
                         block_types.append(block.block_id)
-                        block_metadatas.append(0b0000)
-                        block_lights.append(0b1000)
+                        block_metadatas.append(0b0110) # broken
+                        block_lights.append(0b100) # can't check if its working
                         sky_lights.append(0b1111)
                         adds.append(0b0000)
                     biomes.append(1)
@@ -67,34 +69,58 @@ class Chunk():
 
         return (block_type, block_metadata, block_light, sky_light, add, biome)
 
+    def _pos_to_int(self, pos: Position) -> int:
+        return ((pos.x << 8) + (pos.y << 4) + pos.z)
+
+    def _int_to_pos(self, value: int) -> Position:
+        x = value >> 8
+        y = (value - (x << 8)) >> 4
+        z = value - ((x << 8) + (y << 4))
+        return Position(x, y, z)
+
 @dataclass
 class ChunkColumn():
     chunks: dict[int, Chunk] = field(default_factory=lambda: {})
 
-    def to_packet_data(self) -> tuple[int, int, bool, bytes, bytes]:
+    def get_block(self, pos: Position) -> Block:
+        if not (pos.y//16) in self.chunks:
+            return Block.air()
+        return self.chunks[pos.y//16].get_block(Position(pos.x, pos.y%16, pos.z))
+
+    def set_block(self, pos: Position, block: Block) -> None:
+        if not (pos.y//16) in self.chunks:
+            self.chunks[pos.y//16] = Chunk()
+        return self.chunks[pos.y//16].set_block(Position(pos.x, pos.y%16, pos.z), block)
+
+    def to_packet_data(self, chunk_x: int, chunk_z: int) -> tuple[int, int, bool, bytes, bytes]:
         block_type = b""
         block_metadata = b""
         block_light = b""
         sky_light = b""
         add = b""
         biome = b""
+        primary_bitmap = 0
 
         for c in range(16):
-            chunk_data = self.chunks[c].to_packet_data()
-            block_type += chunk_data[0]
-            block_metadata += chunk_data[1]
-            block_light += chunk_data[2]
-            sky_light += chunk_data[3]
-            add += chunk_data[4]
-            biome += chunk_data[5]
+            if c not in self.chunks.keys():
+                primary_bitmap += (0 << c)
+            else:
+                chunk_data = self.chunks[c].to_packet_data()
+                block_type += chunk_data[0]
+                block_metadata += chunk_data[1]
+                block_light += chunk_data[2]
+                sky_light += chunk_data[3]
+                add += chunk_data[4]
+                biome += chunk_data[5]
+                primary_bitmap += (1 << c)
 
         zlibbed_str = zlib.compress(block_type + block_metadata + block_light + sky_light + add + biome)
         data_compressed = zlibbed_str
         data_len = len(data_compressed)
 
-        metadata = binary_operations._encode_int(self.chunks[0].x) # chunk x
-        metadata += binary_operations._encode_int(self.chunks[0].z) # chunk z
-        metadata += binary_operations._encode_unsigned_short(0b1111111111111111) # primary bitmap, all 1 to send all chunks
+        metadata = binary_operations._encode_int(chunk_x)
+        metadata += binary_operations._encode_int(chunk_z)
+        metadata += binary_operations._encode_unsigned_short(primary_bitmap) # primary bitmap, 1 sends chunk
         metadata += binary_operations._encode_unsigned_short(0b0000000000000000) # add bitmap, all empty
         return (1, data_len, True, data_compressed, metadata)
 
@@ -102,13 +128,17 @@ class ChunkColumn():
 class World():
     dim_id: int
     chunk_columns: dict[int, dict[int, ChunkColumn|None]] = field(default_factory=lambda: defaultdict(dict))
-    
-    def chunk_column_count(self) -> int:
-        c = 0
-        for item in self.chunk_columns.values():
-            for item2 in item.values():
-                c += 1
-        return c
+
+    def get_block(self, pos: Position) -> Block:
+        if (not (pos.z//16) in self.chunk_columns[pos.x//16].keys()) or \
+           self.chunk_columns[pos.x//16][pos.z//16] is None:
+            raise Exception("Chunk not generated!")
+        return self.chunk_columns[pos.x//16][pos.z//16].get_block(Position(pos.x%16, pos.y, pos.z%16))
+
+    def set_block(self, pos: Position, block: Block) -> None:
+        if not (pos.z//16) in self.chunk_columns[pos.x//16].keys():
+            self.chunk_columns[pos.x//16][pos.z//16] = ChunkColumn()
+        return self.chunk_columns[pos.x//16][pos.z//16].set_block(Position(pos.x%16, pos.y, pos.z%16), block)
 
     def to_packet_data(self, chunk_x: int, chunk_z: int):
-        return self.chunk_columns[chunk_x][chunk_z].to_packet_data()
+        return self.chunk_columns[chunk_x][chunk_z].to_packet_data(chunk_x, chunk_z)
