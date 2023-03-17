@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import random
+import uuid
 
 from core import binary_operations
-from network import packets
+from network import handshake_packets, status_packets, login_packets, play_packets
 
 STATUS_STATE = 1
 LOGIN_STATE = 2
@@ -22,7 +24,6 @@ class MinecraftProtocol(asyncio.StreamReaderProtocol):
     def data_received(self, data):
         super().data_received(data)
         logging.debug("received: {}".format(data))
-
 
     async def read_packet(self, packet_class):
         packet_length = await binary_operations._decode_varint(self._stream_reader)
@@ -52,25 +53,34 @@ class MinecraftProtocol(asyncio.StreamReaderProtocol):
         self._transport = None
 
     def get_status(self, address, port):
-        conn = packets.HandshakePacket(address=address,
+        conn = handshake_packets.HandshakePacket(address=address,
                                port=port,
                                next_state=STATUS_STATE)
         yield from self.write_packet(conn)
-        yield from self.write_packet(packets.StatusRequestPacket())
-        status_response = yield from self.read_packet(packets.StatusResponsePacket)
+        yield from self.write_packet(status_packets.StatusRequestPacket())
+        status_response = yield from self.read_packet(status_packets.StatusResponsePacket)
         return status_response.json
 
     def handle_status(self, status_json):
-        yield from self.read_packet(packets.StatusRequestPacket)
-        yield from self.write_packet(packets.StatusResponsePacket(status_json))
-        ping = yield from self.read_packet(packets.PingRequestPacket)
-        yield from self.write_packet(packets.PingResponsePacket(time=ping.time))
+        yield from self.read_packet(status_packets.StatusRequestPacket)
+        yield from self.write_packet(status_packets.StatusResponsePacket(status_json))
+        ping = yield from self.read_packet(status_packets.PingRequestPacket)
+        yield from self.write_packet(status_packets.PingResponsePacket(time=ping.time))
         self.close()
 
     async def handle_login(self):
-        conn_info = await self.read_packet(packets.LoginStartPacket)
-        await self.write_packet(packets.LoginSuccessPacket(conn_info.name))
-        await self.write_packet(packets.JoinGamePacket())
+        conn_info = await self.read_packet(login_packets.LoginStartPacket)
+        player_uuid = uuid.uuid4()
+        await self.write_packet(login_packets.LoginSuccessPacket(conn_info.name, player_uuid))
+        await self.write_packet(play_packets.JoinGamePacket())
+        return (player_uuid, conn_info.name)
+
+    async def handle_server_keepalive(self):
+        rand_int = random.randint(1, 1000)
+        await self.write_packet(play_packets.KeepAlivePacket(rand_int))
+        conn_info = await self.read_packet(play_packets.KeepAlivePacket)
+        if rand_int != conn_info.rand_number:
+            await self.write_packet(play_packets.DisconnectPacket("Timed out"))
 
     def close(self):
         if self._transport:
