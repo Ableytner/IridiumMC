@@ -4,9 +4,11 @@ import os
 
 from core.iridium_server import IridiumServer
 
+LOGGING_LEVEL = logging.INFO
+
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+    logging.basicConfig(level=LOGGING_LEVEL)
+    logging.getLogger("asyncio").setLevel(LOGGING_LEVEL)
     if os.name == 'nt':
         main_loop = asyncio.ProactorEventLoop()
         asyncio.set_event_loop(main_loop)

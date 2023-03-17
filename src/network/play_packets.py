@@ -6,9 +6,7 @@ from core import binary_operations
 from dataclass.position import Position
 from network.packet import Packet
 
-packet_id_map = {
-    
-}
+packet_id_map: dict
 
 class JoinGamePacket(Packet):
     def __init__(self, **kwargs):
@@ -24,10 +22,11 @@ class JoinGamePacket(Packet):
                                          binary_operations._encode_string("default")) # level type
 
 class PlayerPositionAndLook(Packet):
-    def __init__(self, position: Position, look: tuple[float, float], **kwargs):
+    def __init__(self, position: Position, look: tuple[float, float], on_ground: bool, **kwargs):
         super().__init__(**kwargs)
         self.position = position
         self.look = look
+        self.on_ground = on_ground
 
     async def reply(self, writer, data=None):
         await super().reply(writer, data=binary_operations._encode_varint(0x08) +
@@ -36,7 +35,7 @@ class PlayerPositionAndLook(Packet):
                                          binary_operations._encode_double(self.position.z) +
                                          binary_operations._encode_float(self.look[0]) + # yaw
                                          binary_operations._encode_float(self.look[1]) + # pitch
-                                         binary_operations._encode_boolean(False)) # on the ground
+                                         binary_operations._encode_boolean(self.on_ground))
 
 class SpawnPositionPacket(Packet):
     def __init__(self, position: Position, **kwargs):

@@ -4,7 +4,7 @@ import random
 import uuid
 
 from core import binary_operations
-from network import handshake_packets, status_packets, login_packets, play_packets
+from network import packet, handshake_packets, status_packets, login_packets, play_packets, client_packets
 
 STATUS_STATE = 1
 LOGIN_STATE = 2
@@ -25,20 +25,27 @@ class MinecraftProtocol(asyncio.StreamReaderProtocol):
         super().data_received(data)
         logging.debug("received: {}".format(data))
 
-    async def read_packet(self, packet_class):
-        packet_length = await binary_operations._decode_varint(self._stream_reader)
+    async def read_packet(self, packet_class=None) -> packet.Packet | None:
+        try:
+            packet_length = await asyncio.wait_for(binary_operations._decode_varint(self._stream_reader), timeout=0.1)
+        except asyncio.TimeoutError:
+            return None
         packet_data = await self._stream_reader.read(packet_length)
         packet_stream = asyncio.StreamReader()
         packet_stream.feed_data(packet_data)
         packet_id = (await binary_operations._decode_varint(packet_stream))
 
-        if packet_class is not None:
-            logging.debug("Loading packet class: {}".format(packet_class))
-            packet = packet_class(data=packet_data, stream=packet_stream)
-            await packet.load()
-            return packet
-        else:
-            raise ValueError("Unknown packet id: {}".format(packet_id))
+        if packet_class is None:
+            if packet_id not in client_packets.packet_id_map.keys():
+                logging.error(f"Unknown packet id: {packet_id}")
+                await self.write_packet(play_packets.DisconnectPacket(f"Unknown packet id: {packet_id}"))
+                return None
+            packet_class = client_packets.packet_id_map[packet_id]
+
+        logging.debug("Loading packet class: {}".format(packet_class))
+        packet = packet_class(data=packet_data, stream=packet_stream)
+        await packet.load()
+        return packet
 
     async def write_packet(self, packet):
         await packet.reply(self._stream_writer)

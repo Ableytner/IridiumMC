@@ -3,17 +3,18 @@ import logging
 import time
 import traceback
 import os
-import datetime
+from datetime import datetime
 from time import sleep
 from threading import Thread
 
-from network import handshake_packets, play_packets
+from network import handshake_packets, play_packets, client_packets
 from network.protocol import MinecraftProtocol
 from core.worldgen import WorldGenerator
 from dataclass.save import World
 from dataclass.position import Position
 from dataclass.player import Player
-from network.network_handler import NetworkHandler
+
+TPS = 20
 
 class IridiumServer():
     def __init__(self, port: int, path: str) -> None:
@@ -23,9 +24,6 @@ class IridiumServer():
         self.exit = False
         self.world = World(0)
         self.players: dict[str, Player] = {}
-        self.network_thread = Thread(target=self.network_noasync, daemon=True)
-
-    TPS = 20
 
     async def run_server(self):
         def handle_client_task(client_reader, client_writer):
@@ -35,18 +33,35 @@ class IridiumServer():
         logging.info(f"IridiumMC server starting on port {self.port}")
         self.server = await asyncio.start_server(handle_client_task, host="192.168.0.154", port=self.port)
 
-        self.network_thread.start()
-
         logging.info("creating world...")
         wg = WorldGenerator("flat", self.world)
         wg.generate_start_region(Position(0, 0, 0))
         logging.info(f"done")
 
-    def network_noasync(self):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(NetworkHandler(self).mainloop())
-        loop.close()
+        asyncio.get_event_loop().create_task(self.mainloop())
+
+    async def mainloop(self):
+        while True:
+            start_time = datetime.now()
+
+            for player in self.players.values():
+                conn_info = await player.mcprot.read_packet()
+                if isinstance(conn_info, client_packets.Player):
+                    player.on_ground = conn_info.on_ground
+                if isinstance(conn_info, client_packets.PlayerPosition):
+                    player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
+                    player.on_ground = conn_info.on_ground
+                if isinstance(conn_info, client_packets.PlayerPositionAndLook):
+                    player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
+                    player.rot = (conn_info.yaw, conn_info.pitch)
+                    player.on_ground = conn_info.on_ground
+                if isinstance(conn_info, client_packets.Player) or isinstance(conn_info, client_packets.PlayerPosition) or isinstance(conn_info, client_packets.PlayerPositionAndLook):
+                    # await player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
+                    logging.info(player)
+
+            sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
 
     def get_status(self):
         retr_time = time.time()
@@ -89,18 +104,18 @@ class IridiumServer():
             return
         elif conn_info.is_login_next():
             uuid, name = await mcprot.handle_login()
-            player = Player(uuid, name, Position(0, 0, 0), mcprot)
+            player = Player(uuid, name, Position(0, 10, 0), (0, 0), False, mcprot)
             logging.info(f"{name} joined the game")
 
             try:
-                await player.mcprot.write_packet(play_packets.PlayerPositionAndLook(Position(0, 10, 0), (0, 0)))
+                await player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
                 logging.debug("Generating chunk data...")
-                chunk_gen_start_time = datetime.datetime.now()
+                chunk_gen_start_time = datetime.now()
                 for x in range(-1, 2):
                     for z in range(-1, 2):
                         chunk_data = self.world.to_packet_data(x, z)
                         await player.mcprot.write_packet(play_packets.MapChunkBulkPacket(*chunk_data))
-                logging.debug(f"Done, took {round((datetime.datetime.now() - chunk_gen_start_time).total_seconds(), 2)}s")
+                logging.debug(f"Done, took {round((datetime.now() - chunk_gen_start_time).total_seconds(), 2)}s")
             except Exception:
                 print(traceback.format_exc())
         else:

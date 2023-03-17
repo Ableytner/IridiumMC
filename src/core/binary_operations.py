@@ -105,3 +105,15 @@ async def _decode_nibbles(stream) -> tuple[int, int]:
     raw_bytes = await stream.read(1)
     a = int.from_bytes(raw_bytes, byteorder="big") >> 4
     return (a, int.from_bytes(raw_bytes, byteorder="big") - (a << 4))
+
+def _encode_bytearray(value: list[bytes]) -> tuple[int, bytes]:
+    x = b""
+    for y in value:
+        x += y
+    return (len(value), x)
+
+async def _decode_bytearray(stream, length: int) -> list[bytes]:
+    x = []
+    for _ in range(length):
+        x.append(await stream.read(1))
+    return x
