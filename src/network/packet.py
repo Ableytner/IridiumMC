@@ -5,13 +5,14 @@ class Packet:
         self.data = data
         self.stream = stream
 
-    async def load(self):
-        raise NotImplementedError()
+    def load(self):
+        # raise NotImplementedError()
+        pass
 
-    async def reply(self, writer, data=None):
+    def reply(self, socket, data=None):
         if data is None:
             data = self.data
 
-        writer.write(binary_operations._encode_varint(len(data)))
-        writer.write(data)
-        await writer.drain()
+        socket.send(binary_operations._encode_varint(len(data)))
+        socket.send(data)
+        # writer.drain()

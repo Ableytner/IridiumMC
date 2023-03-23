@@ -1,7 +1,6 @@
-import asyncio
 import uuid
 from dataclasses import dataclass
-from threading import Thread, Event
+from datetime import datetime
 from queue import Queue
 
 from dataclass.position import Position
@@ -16,25 +15,19 @@ class Player():
     on_ground: bool
     mcprot: MinecraftProtocol
     network_in: Queue = None
+    last_pos_update: datetime = None
 
     def __post_init__(self):
         if self.network_in is None:
             self.network_in = Queue()
+        self.last_pos_update = datetime.now()
 
     def network_func(self):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        loop.run_until_complete(self._network_func_async())
-        loop.close()
-
-    async def _network_func_async(self):
         while True:
-            print("Client network")
             try:
-                conn_info = await self.mcprot.read_packet()
+                conn_info = self.mcprot.read_packet()
                 self.network_in.put(conn_info)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             except ConnectionAbortedError:
                 return

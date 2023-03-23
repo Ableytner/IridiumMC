@@ -7,25 +7,25 @@ class StatusRequestPacket(Packet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    async def load(self):
+    def load(self):
         pass
 
-    async def reply(self, writer, data=None):
-        await super().reply(writer, data=binary_operations._encode_varint(0x00))
+    def reply(self, writer, data=None):
+        super().reply(writer, data=binary_operations._encode_varint(0x00))
 
 
 # noinspection PyAttributeOutsideInit
 class StatusResponsePacket(Packet):
-    def __init__(self, json_data=None, **kwargs):
+    def __init__(self, json_data: dict = None, **kwargs):
         super().__init__(**kwargs)
         self.json = json_data
 
-    async def load(self):
-        json_str = await binary_operations._decode_string(self.stream)
+    def load(self):
+        json_str = binary_operations._decode_string(self.stream)
         self.json = json.loads(json_str)
 
-    async def reply(self, writer, data=None):
-        await super().reply(writer, data=binary_operations._encode_varint(0x00) +
+    def reply(self, writer, data=None):
+        super().reply(writer, data=binary_operations._encode_varint(0x00) +
                                                binary_operations._encode_string(json.dumps(self.json)))
 
     @property
@@ -37,26 +37,19 @@ class StatusResponsePacket(Packet):
         self.json['players']['online'] = value
 
 
-class PingRequestPacket(Packet):
+class PingRequestPacket(Packet): # 0x01
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.time = None
 
-    async def load(self):
-        self.time = await binary_operations._decode_long(self.stream)
-
-    async def reply(self, writer, data=None):
-        await super().reply(writer, data=binary_operations._encode_varint(0x01) +
-                                               binary_operations._encode_long(self.time))
+    def load(self):
+        self.time = binary_operations._decode_long(self.stream)
 
 class PingResponsePacket(Packet):
-    def __init__(self, time=None, **kwargs):
+    def __init__(self, time: int = None, **kwargs):
         super().__init__(**kwargs)
         self.time = time
 
-    async def load(self):
-        self.time = await binary_operations._decode_long(self.stream)
-
-    async def reply(self, writer, data=None):
-        await super().reply(writer, data=binary_operations._encode_varint(0x01) +
+    def reply(self, writer, data=None):
+        super().reply(writer, data=binary_operations._encode_varint(0x01) +
                                                binary_operations._encode_long(self.time))

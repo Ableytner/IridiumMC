@@ -1,3 +1,4 @@
 servers/
 __pycache__/
 *.pyc
+server/
