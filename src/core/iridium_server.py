@@ -5,7 +5,7 @@ import traceback
 import os
 from datetime import datetime
 from time import sleep
-from threading import Thread
+from threading import Thread, Event
 
 from network import handshake_packets, play_packets, client_packets
 from network.protocol import MinecraftProtocol
@@ -26,12 +26,8 @@ class IridiumServer():
         self.players: dict[str, Player] = {}
 
     async def run_server(self):
-        def handle_client_task(client_reader, client_writer):
-            asyncio.run_coroutine_threadsafe(self._handle_client(client_reader=client_reader,
-                                             client_writer=client_writer), asyncio.get_event_loop())
-
         logging.info(f"IridiumMC server starting on port {self.port}")
-        self.server = await asyncio.start_server(handle_client_task, host="192.168.0.154", port=self.port)
+        self.server = await asyncio.start_server(self._handle_client, host="192.168.0.154", port=self.port)
 
         logging.info("creating world...")
         wg = WorldGenerator("flat", self.world)
@@ -45,19 +41,20 @@ class IridiumServer():
             start_time = datetime.now()
 
             for player in self.players.values():
-                conn_info = await player.mcprot.read_packet()
-                if isinstance(conn_info, client_packets.Player):
-                    player.on_ground = conn_info.on_ground
-                if isinstance(conn_info, client_packets.PlayerPosition):
-                    player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
-                    player.on_ground = conn_info.on_ground
-                if isinstance(conn_info, client_packets.PlayerPositionAndLook):
-                    player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
-                    player.rot = (conn_info.yaw, conn_info.pitch)
-                    player.on_ground = conn_info.on_ground
-                if isinstance(conn_info, client_packets.Player) or isinstance(conn_info, client_packets.PlayerPosition) or isinstance(conn_info, client_packets.PlayerPositionAndLook):
-                    # await player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
-                    logging.info(player)
+                while not player.network_in.empty():
+                    conn_info = player.network_in.get()
+                    if isinstance(conn_info, client_packets.Player):
+                        player.on_ground = conn_info.on_ground
+                    if isinstance(conn_info, client_packets.PlayerPosition):
+                        player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
+                        player.on_ground = conn_info.on_ground
+                    if isinstance(conn_info, client_packets.PlayerPositionAndLook):
+                        player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
+                        player.rot = (conn_info.yaw, conn_info.pitch)
+                        player.on_ground = conn_info.on_ground
+                    if isinstance(conn_info, client_packets.Player) or isinstance(conn_info, client_packets.PlayerPosition) or isinstance(conn_info, client_packets.PlayerPositionAndLook):
+                        await player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
+                        logging.info(player)
 
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
             if sleep_time > 0:
@@ -93,6 +90,28 @@ class IridiumServer():
         }
         return status
 
+    async def run_coro_threadsafe(self, coro, other_loop, our_loop = None):
+        """Schedules coro in other_loop, awaits until coro has run and returns
+        its result.
+        """
+        loop = our_loop or asyncio.get_event_loop()
+
+        # schedule coro safely in other_loop, get a concurrent.future back
+        # NOTE run_coroutine_threadsafe requires Python 3.5.1
+        fut = asyncio.run_coroutine_threadsafe(coro, other_loop)
+
+        # set up a threading.Event that fires when the future is finished
+        finished = Event()
+        def fut_finished_cb(_):
+            finished.set()
+        fut.add_done_callback(fut_finished_cb)
+
+        # wait on that event in an executor, yielding control to our_loop
+        await loop.run_in_executor(None, finished.wait)
+
+        # coro's result is now available in the future object
+        return fut.result()
+
     async def _handle_client(self, client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter):
         logging.debug("Client connected!")
 
@@ -123,3 +142,4 @@ class IridiumServer():
             return
         
         self.players[str(uuid)] = player
+        Thread(target=player.network_func, daemon=True).start()

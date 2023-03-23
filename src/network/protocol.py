@@ -26,10 +26,7 @@ class MinecraftProtocol(asyncio.StreamReaderProtocol):
         logging.debug("received: {}".format(data))
 
     async def read_packet(self, packet_class=None) -> packet.Packet | None:
-        try:
-            packet_length = await asyncio.wait_for(binary_operations._decode_varint(self._stream_reader), timeout=0.1)
-        except asyncio.TimeoutError:
-            return None
+        packet_length = await binary_operations._decode_varint(self._stream_reader)
         packet_data = await self._stream_reader.read(packet_length)
         packet_stream = asyncio.StreamReader()
         packet_stream.feed_data(packet_data)
