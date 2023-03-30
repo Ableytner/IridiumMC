@@ -8,6 +8,7 @@ from threading import Thread
 from socket import socket
 from socketserver import ThreadingTCPServer
 
+from packet_handlers import game_handler, player_handler
 from network import handshake_packets, play_packets, client_packets
 from network.protocol import MinecraftProtocol
 from core.worldgen import WorldGenerator
@@ -26,7 +27,16 @@ class IridiumServer():
         self.players: dict[str, Player] = {}
         IridiumServer.inst = self
 
+        self._packet_handlers = {
+            client_packets.Player: player_handler.player,
+            client_packets.PlayerPosition: player_handler.player_position,
+            client_packets.PlayerPositionAndLook: player_handler.player_position_and_look,
+            client_packets.KeepAlivePacket: game_handler.keep_alive,
+            client_packets.ChatMessagePacket: game_handler.chat_message
+        }
+
     inst = None
+    TPS = TPS
 
     def run_server(self):
         logging.info(f"IridiumMC server starting on port {self.port}")
@@ -45,42 +55,31 @@ class IridiumServer():
             start_time = datetime.now()
 
             for player in self.players.values():
-                player.keepalive[1] -= 1
-                if player.keepalive[1] <= 0:
-                    if player.keepalive[0] == 0:
-                        # send keepalive to client
-                        player.keepalive[0] = 1
-                        player.keepalive[1] = TPS * 5 # wait for 5 seconds to receive back keepalive
-                        ka_packet = play_packets.KeepAlivePacket()
-                        player.mcprot.write_packet(ka_packet)
-                        player.keepalive[2] = ka_packet.keep_alive_id
+                self.handle_keepalive(player)
 
                 while not player.network_in.empty():
                     conn_info = player.network_in.get()
-                    if isinstance(conn_info, client_packets.KeepAlivePacket):
-                        if conn_info.keep_alive_id == player.keepalive[2]:
-                            player.keepalive[0] = 0
-                            player.keepalive[1] = TPS * 5 # wait for 5 seconds until next keepalive
-                            player.keepalive[2] = 0
-                        else:
-                            player.mcprot.write_packet(play_packets.DisconnectPacket("KeepAliveID is incorrect"))
-                    if isinstance(conn_info, client_packets.Player):
-                        player.on_ground = conn_info.on_ground
-                    if isinstance(conn_info, client_packets.PlayerPosition):
-                        player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
-                        player.on_ground = conn_info.on_ground
-                    if isinstance(conn_info, client_packets.PlayerPositionAndLook):
-                        player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
-                        player.rot = (conn_info.yaw, conn_info.pitch)
-                        player.on_ground = conn_info.on_ground
-                    if isinstance(conn_info, client_packets.ChatMessagePacket):
-                        logging.info(f"[{player.name}] {conn_info.message}")
-                        for pl in self.players.values():
-                            pl.mcprot.write_packet(play_packets.ChatMesagePacket(f"[{player.name}] {conn_info.message}"))
+                    if type(conn_info) in self._packet_handlers.keys():
+                        self._packet_handlers[type(conn_info)](self, player, conn_info)
 
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
             if sleep_time > 0:
                 sleep(sleep_time)
+
+    def handle_keepalive(self, player: Player):
+        """Decrease keepalive timer, disconnect if timed out"""
+
+        player.keepalive[1] -= 1
+        if player.keepalive[1] <= 0 and player.keepalive[0] == 0:
+            # send keepalive to client
+            player.keepalive[0] = 1
+            player.keepalive[1] = TPS * 5 # wait for 5 seconds to receive back keepalive
+            ka_packet = play_packets.KeepAlivePacket()
+            player.mcprot.write_packet(ka_packet)
+            player.keepalive[2] = ka_packet.keep_alive_id
+        if player.keepalive[1] <= 0 and player.keepalive[0] == 1:
+            # player timed out returning the keepalive
+            self.disconnect_player(player, "Timed out waiting for keepalive packet")
 
     @staticmethod
     def handle_client_connect(request: socket, client_address: tuple[str, int], server: ThreadingTCPServer) -> None:
