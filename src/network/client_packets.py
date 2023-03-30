@@ -1,17 +1,19 @@
 from core import binary_operations
 from network.packet import Packet
 
-class Player(Packet): # PlayerOnGround
-    def __init__(self, on_ground: bool = None, **kwargs):
+class KeepAlivePacket(Packet):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.on_ground = on_ground
+
+    def load(self): # 0x00
+        self.keep_alive_id = binary_operations._decode_int(self.stream)
+
+class Player(Packet): # PlayerOnGround
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def load(self): # 0x03
         self.on_ground = binary_operations._decode_boolean(self.stream)
-
-    def reply(self, socket, data=None):
-        super().reply(socket, data=binary_operations._encode_varint(0x03) +
-                                         binary_operations._encode_boolean(self.on_ground))
 
 class PlayerPosition(Packet):
     def __init__(self, **kwargs):
@@ -46,6 +48,15 @@ class PlayerPositionAndLook(Packet):
         self.pitch = binary_operations._decode_float(self.stream)
         self.on_ground = binary_operations._decode_boolean(self.stream)
 
+class EntityActionPacket(Packet):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def load(self): # 0x0B
+        self.entity_id = binary_operations._decode_int(self.stream)
+        self.action_id = binary_operations._decode_byte(self.stream)
+        self.jump_boost = binary_operations._decode_int(self.stream)
+
 class ClientSettingsPacket(Packet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -68,10 +79,12 @@ class PluginMessagePacket(Packet):
         self.data = binary_operations._decode_bytearray(self.stream, self.length)
 
 packet_id_map = {
+    0x00: KeepAlivePacket,
     0x03: Player,
     0x04: PlayerPosition,
     0x05: PlayerLook,
     0x06: PlayerPositionAndLook,
     0x15: ClientSettingsPacket,
-    0x17: PluginMessagePacket
+    0x17: PluginMessagePacket,
+    0x0B: EntityActionPacket
 }

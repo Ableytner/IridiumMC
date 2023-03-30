@@ -1,12 +1,22 @@
 import json
 import uuid
 import random
+import math
 
 from core import binary_operations
 from dataclass.position import Position
 from network.packet import Packet
 
 packet_id_map: dict
+
+class KeepAlivePacket(Packet):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.keep_alive_id = random.randint(0, math.pow(2, 31) - 1)
+
+    def reply(self, socket, data=None):
+        super().reply(socket, data=binary_operations._encode_varint(0x00) +
+                                         binary_operations._encode_int(self.keep_alive_id)) # random integer
 
 class JoinGamePacket(Packet):
     def __init__(self, **kwargs):
@@ -65,24 +75,14 @@ class MapChunkBulkPacket(Packet):
                                          self.data +
                                          self.metadata)
 
-class KeepAlivePacket(Packet):
-    def __init__(self, rand_number: None, **kwargs):
-        super().__init__(**kwargs)
-        if rand_number is None:
-            rand_number = random.randint(1, 1000)
-        self.rand_number = rand_number
-
-    def load(self):
-        self.rand_number = binary_operations._decode_int(self.stream)
-
-    def reply(self, socket, data=None):
-        super().reply(socket, data=binary_operations._encode_varint(0x00) +
-                                         binary_operations._encode_int(self.rand_number))
-
 class DisconnectPacket(Packet):
     def __init__(self, reason: str, **kwargs):
         super().__init__(**kwargs)
-        self.reason = reason
+        self.reason = json.dumps({
+            "text": reason,
+            "bold": True,
+            "color": "dark_green",
+        })
 
     def reply(self, socket, data=None):
         super().reply(socket, data=binary_operations._encode_varint(0x40) +

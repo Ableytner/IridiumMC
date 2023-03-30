@@ -17,7 +17,7 @@ class MinecraftProtocol():
     def __init__(self, request: socket):
         self.socket = request
 
-    def read_packet(self, packet_class=None) -> packet.Packet | None:
+    def read_packet(self, packet_class=None) -> packet.Packet | int:
         packet_length = binary_operations._decode_varint(self.socket)
         packet_data = self.socket.recv(packet_length)
         packet_stream = ReadableBuffer(packet_data)
@@ -25,9 +25,7 @@ class MinecraftProtocol():
 
         if packet_class is None:
             if packet_id not in client_packets.packet_id_map.keys():
-                logging.error(f"Unknown packet id: {packet_id}")
-                self.write_packet(play_packets.DisconnectPacket(f"Unknown packet id: {packet_id}"))
-                return None
+                return packet_id
             packet_class = client_packets.packet_id_map[packet_id]
 
         logging.debug("Loading packet class: {}".format(packet_class))

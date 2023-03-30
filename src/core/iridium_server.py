@@ -2,7 +2,7 @@ import logging
 import sys
 import os
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime
 from time import sleep
 from threading import Thread
 from socket import socket
@@ -30,7 +30,7 @@ class IridiumServer():
 
     def run_server(self):
         logging.info(f"IridiumMC server starting on port {self.port}")
-        self.server = ThreadingTCPServer(("0.0.0.0", self.port), self.handle_client)
+        self.server = ThreadingTCPServer(("0.0.0.0", self.port), self.handle_client_connect)
 
         logging.info("creating world...")
         wg = WorldGenerator("flat", self.world)
@@ -45,8 +45,25 @@ class IridiumServer():
             start_time = datetime.now()
 
             for player in self.players.values():
+                player.keepalive[1] -= 1
+                if player.keepalive[1] <= 0:
+                    if player.keepalive[0] == 0:
+                        # send keepalive to client
+                        player.keepalive[0] = 1
+                        player.keepalive[1] = TPS * 5 # wait for 5 seconds to receive back keepalive
+                        ka_packet = play_packets.KeepAlivePacket()
+                        player.mcprot.write_packet(ka_packet)
+                        player.keepalive[2] = ka_packet.keep_alive_id
+
                 while not player.network_in.empty():
                     conn_info = player.network_in.get()
+                    if isinstance(conn_info, client_packets.KeepAlivePacket):
+                        if conn_info.keep_alive_id == player.keepalive[2]:
+                            player.keepalive[0] = 0
+                            player.keepalive[1] = TPS * 5 # wait for 5 seconds until next keepalive
+                            player.keepalive[2] = 0
+                        else:
+                            player.mcprot.write_packet(play_packets.DisconnectPacket("KeepAliveID is incorrect"))
                     if isinstance(conn_info, client_packets.Player):
                         player.on_ground = conn_info.on_ground
                     if isinstance(conn_info, client_packets.PlayerPosition):
@@ -57,13 +74,44 @@ class IridiumServer():
                         player.rot = (conn_info.yaw, conn_info.pitch)
                         player.on_ground = conn_info.on_ground
 
-                if (datetime.now() - player.last_pos_update) > timedelta(seconds=1):
-                    player.last_pos_update = datetime.now()
-                    player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
-
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
             if sleep_time > 0:
                 sleep(sleep_time)
+
+    @staticmethod
+    def handle_client_connect(request: socket, client_address: tuple[str, int], server: ThreadingTCPServer) -> None:
+        self = IridiumServer.inst
+        logging.debug("Client connected!")
+
+        mcprot = MinecraftProtocol(request)
+        conn_info = mcprot.read_packet(handshake_packets.HandshakePacket)
+
+        if conn_info.is_status_next():
+            mcprot.handle_status(self.get_status())
+            return
+        elif conn_info.is_login_next():
+            uuid, name = mcprot.handle_login()
+            player = Player(self, uuid, name, Position(0, 10, 0), (0, 0), False, mcprot)
+            logging.info(f"{name} joined the game")
+
+            player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
+            logging.debug("Generating chunk data...")
+            chunk_gen_start_time = datetime.now()
+            for x in range(-1, 2):
+                for z in range(-1, 2):
+                    chunk_data = self.world.to_packet_data(x, z)
+                    player.mcprot.write_packet(play_packets.MapChunkBulkPacket(*chunk_data))
+            logging.debug(f"Done, took {round((datetime.now() - chunk_gen_start_time).total_seconds(), 2)}s")
+        else:
+            logging.exception(f"unknown next_state {conn_info.next_state}")
+            return
+
+        self.players[str(uuid)] = player
+        player.network_func()
+
+    def disconnect_player(self, player: Player, reason: str):
+        player.mcprot.write_packet(play_packets.DisconnectPacket(reason))
+        self.players.pop(str(player.uuid))
 
     def get_status(self) -> dict:
         image_path = "server/server-icon.png"
@@ -82,7 +130,7 @@ class IridiumServer():
             },
             "players": {
                 "max": 20,
-                "online": 0,
+                "online": len(self.players),
                 "sample": []
             },
             "description": {
@@ -91,34 +139,3 @@ class IridiumServer():
             "favicon": dataurl or ""
         }
         return status
-
-    @staticmethod
-    def handle_client(request: socket, client_address: tuple[str, int], server: ThreadingTCPServer) -> None:
-        self = IridiumServer.inst
-        logging.debug("Client connected!")
-
-        mcprot = MinecraftProtocol(request)
-        conn_info = mcprot.read_packet(handshake_packets.HandshakePacket)
-
-        if conn_info.is_status_next():
-            mcprot.handle_status(self.get_status())
-            return
-        elif conn_info.is_login_next():
-            uuid, name = mcprot.handle_login()
-            player = Player(uuid, name, Position(0, 10, 0), (0, 0), False, mcprot)
-            logging.info(f"{name} joined the game")
-
-            player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
-            logging.debug("Generating chunk data...")
-            chunk_gen_start_time = datetime.now()
-            for x in range(-1, 2):
-                for z in range(-1, 2):
-                    chunk_data = self.world.to_packet_data(x, z)
-                    player.mcprot.write_packet(play_packets.MapChunkBulkPacket(*chunk_data))
-            logging.debug(f"Done, took {round((datetime.now() - chunk_gen_start_time).total_seconds(), 2)}s")
-        else:
-            logging.exception(f"unknown next_state {conn_info.next_state}")
-            return
-
-        self.players[str(uuid)] = player
-        player.network_func()
