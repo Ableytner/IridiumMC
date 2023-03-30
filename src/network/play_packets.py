@@ -31,6 +31,20 @@ class JoinGamePacket(Packet):
                                          binary_operations._encode_unsigned_byte(5) + # max players
                                          binary_operations._encode_string("default")) # level type
 
+class ChatMesagePacket(Packet):
+    def __init__(self, message: str|dict, **kwargs):
+        super().__init__(**kwargs)
+        if isinstance(message, dict):
+            self.message = json.dumps(message)
+        else:
+            self.message = json.dumps({
+                "text": message
+            })
+
+    def reply(self, socket, data=None):
+        super().reply(socket, data=binary_operations._encode_varint(0x02) +
+                                         binary_operations._encode_string(self.message))
+
 class PlayerPositionAndLook(Packet):
     def __init__(self, position: Position, look: tuple[float, float], on_ground: bool, **kwargs):
         super().__init__(**kwargs)
@@ -76,13 +90,14 @@ class MapChunkBulkPacket(Packet):
                                          self.metadata)
 
 class DisconnectPacket(Packet):
-    def __init__(self, reason: str, **kwargs):
+    def __init__(self, reason: str|dict, **kwargs):
         super().__init__(**kwargs)
-        self.reason = json.dumps({
-            "text": reason,
-            "bold": True,
-            "color": "dark_green",
-        })
+        if isinstance(reason, dict):
+            self.reason = json.dumps(reason)
+        else:
+            self.reason = json.dumps({
+                "text": reason
+            })
 
     def reply(self, socket, data=None):
         super().reply(socket, data=binary_operations._encode_varint(0x40) +

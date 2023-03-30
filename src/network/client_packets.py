@@ -8,6 +8,13 @@ class KeepAlivePacket(Packet):
     def load(self): # 0x00
         self.keep_alive_id = binary_operations._decode_int(self.stream)
 
+class ChatMessagePacket(Packet):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def load(self): # 0x01
+        self.message = binary_operations._decode_string(self.stream)
+
 class Player(Packet): # PlayerOnGround
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -80,6 +87,7 @@ class PluginMessagePacket(Packet):
 
 packet_id_map = {
     0x00: KeepAlivePacket,
+    0x01: ChatMessagePacket,
     0x03: Player,
     0x04: PlayerPosition,
     0x05: PlayerLook,

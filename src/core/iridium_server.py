@@ -73,6 +73,10 @@ class IridiumServer():
                         player.pos = Position(conn_info.x, conn_info.heady, conn_info.z)
                         player.rot = (conn_info.yaw, conn_info.pitch)
                         player.on_ground = conn_info.on_ground
+                    if isinstance(conn_info, client_packets.ChatMessagePacket):
+                        logging.info(f"[{player.name}] {conn_info.message}")
+                        for pl in self.players.values():
+                            pl.mcprot.write_packet(play_packets.ChatMesagePacket(f"[{player.name}] {conn_info.message}"))
 
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
             if sleep_time > 0:
@@ -93,6 +97,9 @@ class IridiumServer():
             uuid, name = mcprot.handle_login()
             player = Player(self, uuid, name, Position(0, 10, 0), (0, 0), False, mcprot)
             logging.info(f"{name} joined the game")
+            for pl in self.players.values():
+                if pl.uuid != uuid:
+                    pl.mcprot.write_packet(play_packets.ChatMesagePacket(f"{name} joined the game"))
 
             player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
             logging.debug("Generating chunk data...")
@@ -107,11 +114,16 @@ class IridiumServer():
             return
 
         self.players[str(uuid)] = player
+
         player.network_func()
 
-    def disconnect_player(self, player: Player, reason: str):
-        player.mcprot.write_packet(play_packets.DisconnectPacket(reason))
+    def disconnect_player(self, player: Player, reason: str = None):
+        if reason is not None:
+            player.mcprot.write_packet(play_packets.DisconnectPacket(reason))
         self.players.pop(str(player.uuid))
+        logging.info(f"{player.name} left the game")
+        for pl in self.players.values():
+            pl.mcprot.write_packet(play_packets.ChatMesagePacket(f"{player.name} left the game"))
 
     def get_status(self) -> dict:
         image_path = "server/server-icon.png"
