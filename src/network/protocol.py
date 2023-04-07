@@ -6,7 +6,7 @@ from socket import socket
 
 from core import binary_operations
 from core.readable_buffer import ReadableBuffer
-from network import packet, handshake_packets, status_packets, login_packets, play_packets, client_packets
+from network import packet, handshake_packets, server_packets, status_packets, login_packets, client_packets
 
 STATUS_STATE = 1
 LOGIN_STATE = 2
@@ -28,39 +28,46 @@ class MinecraftProtocol():
                 return packet_id
             packet_class = client_packets.packet_id_map[packet_id]
 
-        logging.debug("Loading packet class: {}".format(packet_class))
-        packet = packet_class(data=packet_data, stream=packet_stream)
-        packet.load()
-        return packet
+        if not issubclass(packet_class, packet.ClientPacket):
+            raise TypeError(f"Tried to read packet of type {packet_class} which doesn't derive from {packet.ClientPacket}")
 
-    def write_packet(self, packet):
-        packet.reply(self.socket)
+        logging.debug(f"Reading packet: {packet_class}")
+        constr_packet = packet_class(data=packet_data, stream=packet_stream)
+        constr_packet.load()
+        return constr_packet
+
+    def write_packet(self, constr_packet: packet.ServerPacket):
+        if not isinstance(constr_packet, packet.ServerPacket):
+            raise TypeError(f"Tried to write packet of type {type(constr_packet)} which doesn't derive from {packet.ServerPacket}")
+
+        logging.debug(f"Writing packet: {type(constr_packet)}")
+        constr_packet.reply(self.socket)
 
     def get_status(self, address, port):
-        conn = handshake_packets.HandshakePacket(address=address,
+        conn = handshake_packets.Handshake(address=address,
                                port=port,
                                next_state=STATUS_STATE)
         self.write_packet(conn)
-        self.write_packet(status_packets.StatusRequestPacket())
-        status_response = self.read_packet(status_packets.StatusResponsePacket)
+        self.write_packet(status_packets.StatusRequest())
+        status_response = self.read_packet(status_packets.StatusResponse)
         return status_response.json
 
     def handle_status(self, status_json: dict):
-        self.read_packet(status_packets.StatusRequestPacket)
-        self.write_packet(status_packets.StatusResponsePacket(status_json))
-        conn_info = self.read_packet(status_packets.PingRequestPacket)
-        self.write_packet(status_packets.PingResponsePacket(time=conn_info.time))
+        self.read_packet(status_packets.StatusRequest)
+        self.write_packet(status_packets.StatusResponse(status_json))
+        conn_info = self.read_packet(status_packets.PingRequest)
+        self.write_packet(status_packets.PingResponse(time=conn_info.time))
 
     def handle_login(self):
-        conn_info = self.read_packet(login_packets.LoginStartPacket)
+        conn_info = self.read_packet(login_packets.LoginStart)
         player_uuid = uuid.uuid4()
-        self.write_packet(login_packets.LoginSuccessPacket(conn_info.name, player_uuid))
-        self.write_packet(play_packets.JoinGamePacket())
+        self.write_packet(login_packets.LoginSuccess(conn_info.name, player_uuid))
+        self.write_packet(server_packets.JoinGame())
         return (player_uuid, conn_info.name)
 
-    def handle_server_keepalive(self):
+    def handle_server_keepalive(self): # !!! Needs rework !!!
         rand_int = random.randint(1, 1000)
-        self.write_packet(play_packets.KeepAlivePacket(rand_int))
-        conn_info = self.read_packet(play_packets.KeepAlivePacket)
+        self.write_packet(server_packets.KeepAlive(rand_int))
+        conn_info = self.read_packet(server_packets.KeepAlive)
         if rand_int != conn_info.rand_number:
-            self.write_packet(play_packets.DisconnectPacket("Timed out"))
+            self.write_packet(server_packets.Disconnect("Timed out"))

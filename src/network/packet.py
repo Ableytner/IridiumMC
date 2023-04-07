@@ -1,3 +1,9 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dataclass.player import Player
+    from core.iridium_server import IridiumServer
+
 from core import binary_operations
 
 class Packet:
@@ -5,14 +11,22 @@ class Packet:
         self.data = data
         self.stream = stream
 
-    def load(self):
-        # raise NotImplementedError()
-        pass
+class ClientPacket(Packet):
+    """A packet that the client sends"""
 
-    def reply(self, socket, data=None):
+    def load(self):
+        raise NotImplementedError()
+
+    def process(self, server: "IridiumServer", player: "Player"):
+        raise NotImplementedError()
+
+class ServerPacket(Packet):
+    """A packet that the server sends"""
+
+    def reply(self, socket_conn, data=None):
         if data is None:
             data = self.data
 
-        socket.send(binary_operations._encode_varint(len(data)))
-        socket.send(data)
+        socket_conn.send(binary_operations._encode_varint(len(data)))
+        socket_conn.send(data)
         # writer.drain()

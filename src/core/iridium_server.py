@@ -8,9 +8,9 @@ from threading import Thread
 from socket import socket
 from socketserver import ThreadingTCPServer
 
-from packet_handlers import game_handler, player_handler
-from network import handshake_packets, play_packets, client_packets
+from network import packet, handshake_packets, server_packets
 from network.protocol import MinecraftProtocol
+from core import tick_timer
 from core.worldgen import WorldGenerator
 from dataclass.save import World
 from dataclass.position import Position
@@ -26,14 +26,6 @@ class IridiumServer():
         self.world = World(0)
         self.players: dict[str, Player] = {}
         IridiumServer.inst = self
-
-        self._packet_handlers = {
-            client_packets.Player: player_handler.player,
-            client_packets.PlayerPosition: player_handler.player_position,
-            client_packets.PlayerPositionAndLook: player_handler.player_position_and_look,
-            client_packets.KeepAlivePacket: game_handler.keep_alive,
-            client_packets.ChatMessagePacket: game_handler.chat_message
-        }
 
     inst = None
     TPS = TPS
@@ -58,9 +50,10 @@ class IridiumServer():
                 self.handle_keepalive(player)
 
                 while not player.network_in.empty():
-                    conn_info = player.network_in.get()
-                    if type(conn_info) in self._packet_handlers.keys():
-                        self._packet_handlers[type(conn_info)](self, player, conn_info)
+                    conn_info: packet.ClientPacket = player.network_in.get()
+                    conn_info.process(self, player)
+
+            tick_timer.tick()
 
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
             if sleep_time > 0:
@@ -74,7 +67,7 @@ class IridiumServer():
             # send keepalive to client
             player.keepalive[0] = 1
             player.keepalive[1] = TPS * 5 # wait for 5 seconds to receive back keepalive
-            ka_packet = play_packets.KeepAlivePacket()
+            ka_packet = server_packets.KeepAlive()
             player.mcprot.write_packet(ka_packet)
             player.keepalive[2] = ka_packet.keep_alive_id
         if player.keepalive[1] <= 0 and player.keepalive[0] == 1:
@@ -87,7 +80,7 @@ class IridiumServer():
         logging.debug("Client connected!")
 
         mcprot = MinecraftProtocol(request)
-        conn_info = mcprot.read_packet(handshake_packets.HandshakePacket)
+        conn_info = mcprot.read_packet(handshake_packets.Handshake)
 
         if conn_info.is_status_next():
             mcprot.handle_status(self.get_status())
@@ -98,15 +91,15 @@ class IridiumServer():
             logging.info(f"{name} joined the game")
             for pl in self.players.values():
                 if pl.uuid != uuid:
-                    pl.mcprot.write_packet(play_packets.ChatMesagePacket(f"{name} joined the game"))
+                    pl.mcprot.write_packet(server_packets.ChatMesage(f"{name} joined the game"))
 
-            player.mcprot.write_packet(play_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
+            player.mcprot.write_packet(server_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
             logging.debug("Generating chunk data...")
             chunk_gen_start_time = datetime.now()
             for x in range(-1, 2):
                 for z in range(-1, 2):
                     chunk_data = self.world.to_packet_data(x, z)
-                    player.mcprot.write_packet(play_packets.MapChunkBulkPacket(*chunk_data))
+                    player.mcprot.write_packet(server_packets.MapChunkBulk(*chunk_data))
             logging.debug(f"Done, took {round((datetime.now() - chunk_gen_start_time).total_seconds(), 2)}s")
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
@@ -118,11 +111,11 @@ class IridiumServer():
 
     def disconnect_player(self, player: Player, reason: str = None):
         if reason is not None:
-            player.mcprot.write_packet(play_packets.DisconnectPacket(reason))
+            player.mcprot.write_packet(server_packets.Disconnect(reason))
         self.players.pop(str(player.uuid))
         logging.info(f"{player.name} left the game")
         for pl in self.players.values():
-            pl.mcprot.write_packet(play_packets.ChatMesagePacket(f"{player.name} left the game"))
+            pl.mcprot.write_packet(server_packets.ChatMesage(f"{player.name} left the game"))
 
     def get_status(self) -> dict:
         image_path = "server/server-icon.png"
