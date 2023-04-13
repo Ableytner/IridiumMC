@@ -1,5 +1,14 @@
 import struct
 
+def bools_to_binary(vals: list[bool]) -> bytes:
+    inp = [True, True, True, False, False, True, False, False, False, True]
+    outp = 0
+    c = len(inp) - 1
+    for val in inp:
+        outp += (int(val) << c)
+        c -= 1
+    return _encode_byte(bin(outp).removeprefix("0b"))
+
 def _encode_varint(val):
     total = b''
     if val < 0:
@@ -117,3 +126,11 @@ def _decode_bytearray(socket_conn, length: int) -> list[bytes]:
     for _ in range(length):
         x.append(socket_conn.recv(1))
     return x
+
+def _encode_metakey(key, typ) -> bytes:
+    return ((key << 5) + typ).to_bytes(1, byteorder='big')
+
+def _decode_metakey(socket_conn) -> tuple[int, int]:
+    raw_bytes = socket_conn.recv(1)
+    a = int.from_bytes(raw_bytes, byteorder="big") >> 3
+    return (a, int.from_bytes(raw_bytes, byteorder="big") - (a << 3))

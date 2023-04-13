@@ -19,11 +19,12 @@ class KeepAlive(ClientPacket): # 0x00
 
     def process(self, server: "IridiumServer", player: "Player"):
         if self.keep_alive_id == player.keepalive[2]:
-            player.keepalive[0] = 0
+            player.keepalive[0] = 0 # switch to WAITING
             player.keepalive[1] = server.TPS * 5 # wait for 5 seconds until next keepalive
             player.keepalive[2] = 0
         else:
-            player.mcprot.write_packet(server_packets.Disconnect("KeepAliveID is incorrect"))
+            # client sent back the wrong keepalive_id
+            server.disconnect_player(player, "KeepAliveID is incorrect")
 
 class ChatMessage(ClientPacket): # 0x01
     def __init__(self, **kwargs):
@@ -93,18 +94,6 @@ class PlayerPositionAndLook(ClientPacket): # 0x06
         player.rot = (self.yaw, self.pitch)
         player.on_ground = self.on_ground
 
-class EntityAction(ClientPacket): # 0x0B
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def load(self):
-        self.entity_id = binary_operations._decode_int(self.stream)
-        self.action_id = binary_operations._decode_byte(self.stream)
-        self.jump_boost = binary_operations._decode_int(self.stream)
-
-    def process(self, server: "IridiumServer", player: "Player"):
-        pass
-
 class ClientSettings(ClientPacket): # 0x15
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -117,6 +106,9 @@ class ClientSettings(ClientPacket): # 0x15
         self.difficulty = binary_operations._decode_byte(self.stream)
         self.show_cape = binary_operations._decode_boolean(self.stream)
 
+    def process(self, server: "IridiumServer", player: "Player"):
+        pass
+
 class PluginMessage(ClientPacket): # 0x17
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -125,6 +117,42 @@ class PluginMessage(ClientPacket): # 0x17
         self.channel = binary_operations._decode_string(self.stream)
         self.length = binary_operations._decode_short(self.stream)
         self.data = binary_operations._decode_bytearray(self.stream, self.length)
+
+    def process(self, server: "IridiumServer", player: "Player"):
+        pass
+
+class Animation(ClientPacket): # 0x0A
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def load(self):
+        self.entity_id = binary_operations._decode_int(self.stream)
+        self.animation_id = binary_operations._decode_byte(self.stream)
+        # 0: No animation
+        # 1: Swing arm
+        # 2: Damage animation
+        # 3: Leave bed
+        # 5: Eat food
+        # 6: Critical effect
+        # 7: Magic critical effect
+        # 102: (unknown)
+        # 104: Crouch
+        # 105: Uncrouch
+
+    def process(self, server: "IridiumServer", player: "Player"):
+        pass
+
+class EntityAction(ClientPacket): # 0x0B
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def load(self):
+        self.entity_id = binary_operations._decode_int(self.stream)
+        self.action_id = binary_operations._decode_byte(self.stream)
+        self.jump_boost = binary_operations._decode_int(self.stream)
+
+    def process(self, server: "IridiumServer", player: "Player"):
+        pass
 
 packet_id_map = {
     0x00: KeepAlive,
@@ -135,5 +163,6 @@ packet_id_map = {
     0x06: PlayerPositionAndLook,
     0x15: ClientSettings,
     0x17: PluginMessage,
+    0x0A: Animation,
     0x0B: EntityAction
 }

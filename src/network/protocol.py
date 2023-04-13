@@ -14,10 +14,12 @@ LOGIN_STATE = 2
 class MinecraftProtocol():
     _transport = None
 
-    def __init__(self, request: socket):
+    def __init__(self, request: socket) -> None:
         self.socket = request
 
     def read_packet(self, packet_class=None) -> packet.Packet | int:
+        """Read, load and return a packet"""
+
         packet_length = binary_operations._decode_varint(self.socket)
         packet_data = self.socket.recv(packet_length)
         packet_stream = ReadableBuffer(packet_data)
@@ -25,6 +27,7 @@ class MinecraftProtocol():
 
         if packet_class is None:
             if packet_id not in client_packets.packet_id_map.keys():
+                # the packet wasn't found, return its id
                 return packet_id
             packet_class = client_packets.packet_id_map[packet_id]
 
@@ -36,38 +39,28 @@ class MinecraftProtocol():
         constr_packet.load()
         return constr_packet
 
-    def write_packet(self, constr_packet: packet.ServerPacket):
+    def write_packet(self, constr_packet: packet.ServerPacket) -> None:
+        """Write a packet to the client"""
+
         if not isinstance(constr_packet, packet.ServerPacket):
             raise TypeError(f"Tried to write packet of type {type(constr_packet)} which doesn't derive from {packet.ServerPacket}")
 
         logging.debug(f"Writing packet: {type(constr_packet)}")
         constr_packet.reply(self.socket)
 
-    def get_status(self, address, port):
-        conn = handshake_packets.Handshake(address=address,
-                               port=port,
-                               next_state=STATUS_STATE)
-        self.write_packet(conn)
-        self.write_packet(status_packets.StatusRequest())
-        status_response = self.read_packet(status_packets.StatusResponse)
-        return status_response.json
+    def handle_status(self, status_json: dict) -> None:
+        """Handle the server list ping"""
 
-    def handle_status(self, status_json: dict):
         self.read_packet(status_packets.StatusRequest)
         self.write_packet(status_packets.StatusResponse(status_json))
         conn_info = self.read_packet(status_packets.PingRequest)
         self.write_packet(status_packets.PingResponse(time=conn_info.time))
 
-    def handle_login(self):
+    def handle_login(self) -> tuple[uuid.UUID, str]:
+        """Handle client login"""
+
         conn_info = self.read_packet(login_packets.LoginStart)
         player_uuid = uuid.uuid4()
         self.write_packet(login_packets.LoginSuccess(conn_info.name, player_uuid))
         self.write_packet(server_packets.JoinGame())
         return (player_uuid, conn_info.name)
-
-    def handle_server_keepalive(self): # !!! Needs rework !!!
-        rand_int = random.randint(1, 1000)
-        self.write_packet(server_packets.KeepAlive(rand_int))
-        conn_info = self.read_packet(server_packets.KeepAlive)
-        if rand_int != conn_info.rand_number:
-            self.write_packet(server_packets.Disconnect("Timed out"))

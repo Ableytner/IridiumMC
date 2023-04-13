@@ -89,6 +89,19 @@ class MapChunkBulk(ServerPacket): # 0x26
                                          self.data +
                                          self.metadata)
 
+class PlayerListItem(ServerPacket): # 0x38
+    def __init__(self, player_name: str, online: bool, ping: int, **kwargs):
+        super().__init__(**kwargs)
+        self.player_name = player_name
+        self.online = online
+        self.ping = ping
+
+    def reply(self, socket_conn):
+        super().reply(socket_conn, data=binary_operations._encode_varint(0x38) +
+                                        binary_operations._encode_string(self.player_name) +
+                                        binary_operations._encode_boolean(self.online) +
+                                        binary_operations._encode_short(self.ping))
+
 class Disconnect(ServerPacket): # 0x40
     def __init__(self, reason: str|dict, **kwargs):
         super().__init__(**kwargs)
@@ -101,4 +114,30 @@ class Disconnect(ServerPacket): # 0x40
 
     def reply(self, socket_conn):
         super().reply(socket_conn, data=binary_operations._encode_varint(0x40) +
-                                         binary_operations._encode_string(self.reason))
+                                        binary_operations._encode_string(self.reason))
+
+class SpawnPlayer(ServerPacket): #0x0C
+    def __init__(self, entity_id: int, player_uuid: str, player_name: str, data: bytes, pos: Position, rot: tuple[float, float], current_item: int, metadata: bytes, **kwargs):
+        super().__init__(**kwargs)
+        self.entity_id = entity_id
+        self.player_uuid = player_uuid
+        self.player_name = player_name
+        self.data = data
+        self.pos = pos
+        self.rot = rot
+        self.current_item = current_item
+        self.metadata = metadata
+
+    def reply(self, socket_conn):
+        super().reply(socket_conn, data=binary_operations._encode_varint(0x0C) +
+                                        binary_operations._encode_string(self.player_uuid) +
+                                        binary_operations._encode_string(self.player_name) +
+                                        binary_operations._encode_varint(len(self.data)) +
+                                        self.data +
+                                        binary_operations._encode_int(self.pos.x) +
+                                        binary_operations._encode_int(self.pos.y) +
+                                        binary_operations._encode_int(self.pos.z) +
+                                        binary_operations._encode_byte(self.rot[0]) +
+                                        binary_operations._encode_byte(self.rot[1]) +
+                                        binary_operations._encode_short(self.current_item) +
+                                        self.metadata)
