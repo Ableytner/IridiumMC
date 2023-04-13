@@ -1,4 +1,5 @@
 import logging
+import struct
 import uuid
 from dataclasses import dataclass
 from queue import Queue
@@ -39,11 +40,16 @@ class Player():
                     self.network_in.put(conn_info)
                 else:
                     logging.error(f"Unknown packet id: {hex(conn_info)}")
-                    self.server.disconnect_player(self, f"Unknown packet id: {hex(conn_info)}")
+                    self.server.disconnect_player(self, {"text": f"Unknown packet id: {hex(conn_info)}", "bold": True, "color": "dark_green"})
                     return
             except TimeoutError:
                 pass
             except (ConnectionAbortedError, OSError):
+                return
+            except struct.error as err:
+                # assume that the player disconnected client-side
+                logging.debug(err)
+                self.server.disconnect_player(self)
                 return
 
     def __str__(self) -> str:
