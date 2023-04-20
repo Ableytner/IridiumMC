@@ -38,7 +38,7 @@ class ChatMessage(ClientPacket): # 0x01
         for pl in server.players.values():
             pl.mcprot.write_packet(server_packets.ChatMesage(f"[{player.name}] {self.message}"))
 
-class Player(ClientPacket):  # 0x03 PlayerOnGround
+class PlayerP(ClientPacket):  # 0x03 PlayerOnGround
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -107,7 +107,7 @@ class ClientSettings(ClientPacket): # 0x15
         self.show_cape = binary_operations._decode_boolean(self.stream)
 
     def process(self, server: "IridiumServer", player: "Player"):
-        pass
+        player.view_dist = self.view_distance
 
 class PluginMessage(ClientPacket): # 0x17
     def __init__(self, **kwargs):
@@ -157,7 +157,7 @@ class EntityAction(ClientPacket): # 0x0B
 packet_id_map = {
     0x00: KeepAlive,
     0x01: ChatMessage,
-    0x03: Player,
+    0x03: PlayerP,
     0x04: PlayerPosition,
     0x05: PlayerLook,
     0x06: PlayerPositionAndLook,

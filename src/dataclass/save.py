@@ -2,7 +2,10 @@ from __future__ import annotations
 from collections import defaultdict
 import zlib
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from core.iridium_server import IridiumServer
 from dataclass.position import Position
 from core import binary_operations
 
@@ -126,6 +129,7 @@ class ChunkColumn():
 
 @dataclass
 class World():
+    server: "IridiumServer"
     dim_id: int
     chunk_columns: dict[int, dict[int, ChunkColumn|None]] = field(default_factory=lambda: defaultdict(dict))
 
@@ -141,4 +145,13 @@ class World():
         return self.chunk_columns[pos.x//16][pos.z//16].set_block(Position(pos.x%16, pos.y, pos.z%16), block)
 
     def to_packet_data(self, chunk_x: int, chunk_z: int):
+        if not self.chunk_exists(chunk_x, chunk_z):
+            self.server.generate_chunk(chunk_x*16, chunk_z*16)
         return self.chunk_columns[chunk_x][chunk_z].to_packet_data(chunk_x, chunk_z)
+
+    def chunk_exists(self, chunk_x: int, chunk_z: int) -> bool:
+        if not (chunk_x in self.chunk_columns.keys()):
+            return False
+        if not (chunk_z in self.chunk_columns[chunk_x].keys()):
+            return False
+        return isinstance(self.chunk_columns[chunk_x][chunk_z], ChunkColumn)
