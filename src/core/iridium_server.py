@@ -69,6 +69,7 @@ class IridiumServer():
                 except OSError as oserr:
                     # player disconnected client-side
                     logging.debug(oserr)
+
             tick_timer.tick()
 
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
@@ -100,7 +101,6 @@ class IridiumServer():
 
             # send pos and rot to new player
             player.mcprot.write_packet(server_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
-
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
             return
