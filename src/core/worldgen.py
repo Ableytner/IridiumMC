@@ -13,9 +13,9 @@ class WorldGenerator():
     def generate_start_region(self, position: Position):
         for x in range(-(4*16), 4*16, 16):
             for z in range(-(4*16), 4*16, 16):
-                self._generate_chunk_column(((position.x//16) * 16) + x, ((position.z//16) * 16) + z)
+                self.generate_chunk_column(((position.x//16) * 16) + x, ((position.z//16) * 16) + z)
 
-    def _generate_chunk_column(self, start_pos_x: int, start_pos_z):
+    def generate_chunk_column(self, start_pos_x: int, start_pos_z):
         if self._level_type == "flat":
             for y in range(256):
                 for x in range(16):

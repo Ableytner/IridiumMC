@@ -2,6 +2,7 @@ import base64
 import logging
 import os
 import sys
+import traceback
 from datetime import datetime
 from socket import socket
 from socketserver import ThreadingTCPServer
@@ -27,7 +28,8 @@ class IridiumServer():
         self.port = port
         self.path = path
         self.server = None
-        self.world = World(0)
+        self.world = World(self, 0)
+        self.world_gen = WorldGenerator("flat", self.world)
         self.players: dict[str, Player] = {}
         IridiumServer.inst = self
 
@@ -42,8 +44,7 @@ class IridiumServer():
         self.server = ThreadingTCPServer(("0.0.0.0", self.port), self.handle_client_connect)
 
         logging.info("creating world...")
-        wg = WorldGenerator("flat", self.world)
-        wg.generate_start_region(Position(0, 0, 0))
+        self.world_gen.generate_start_region(Position(0, 0, 0))
         logging.info(f"done")
 
         # start the game loop
@@ -57,11 +58,17 @@ class IridiumServer():
             start_time = datetime.now()
 
             for player in self.players.values():
-                self.handle_keepalive(player)
+                try:
+                    self.handle_keepalive(player)
 
-                while not player.network_in.empty():
-                    conn_info: packet.ClientPacket = player.network_in.get()
-                    conn_info.process(self, player)
+                    while not player.network_in.empty():
+                        conn_info: packet.ClientPacket = player.network_in.get()
+                        conn_info.process(self, player)
+                    
+                    player.load_chunks(self.world)
+                except OSError as oserr:
+                    # player disconnected client-side
+                    logging.debug(oserr)
 
             tick_timer.tick()
 
@@ -85,7 +92,7 @@ class IridiumServer():
         elif conn_info.is_login_next():
             uuid, name = mcprot.handle_login()
             # create a new player object
-            player = Player(self, uuid, name, Position(0, 10, 0), (0, 0), False, mcprot)
+            player = Player(self, uuid, name, Position(0, 10, 0), (0, 0), False, self.VIEW_DIST, mcprot)
             logging.info(f"{name} joined the game")
 
             # send player joined message
@@ -94,16 +101,6 @@ class IridiumServer():
 
             # send pos and rot to new player
             player.mcprot.write_packet(server_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
-
-            # !!! needs rework !!!
-            # send chunks
-            logging.debug("Generating chunk data for client...")
-            chunk_gen_start_time = datetime.now()
-            for x in range(-1, 2):
-                for z in range(-1, 2):
-                    chunk_data = self.world.to_packet_data(x, z)
-                    player.mcprot.write_packet(server_packets.MapChunkBulk(*chunk_data))
-            logging.debug(f"Done, took {round((datetime.now() - chunk_gen_start_time).total_seconds(), 2)}s")
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
             return
@@ -149,16 +146,22 @@ class IridiumServer():
             # player timed out sending back the keepalive
             self.disconnect_player(player, "Timed out waiting for keepalive packet")
 
+    def generate_chunk(self, x: int, z: int) -> None:
+        self.world_gen.generate_chunk_column(x, z)
+
     def disconnect_player(self, player: Player, reason: str = None):
         """Cleanly disconnect the given player"""
 
-        if reason is not None:
-            player.mcprot.write_packet(server_packets.Disconnect(reason))
-        self.players.pop(str(player.uuid))
-        logging.info(f"{player.name} left the game")
-        for pl in self.players.values():
-            pl.mcprot.write_packet(server_packets.ChatMesage(f"{player.name} left the game"))
-            pl.mcprot.write_packet(server_packets.PlayerListItem(player.name, False, 0))
+        def callback(self, player, reason):
+            if reason is not None:
+                player.mcprot.write_packet(server_packets.Disconnect(reason))
+            self.players.pop(str(player.uuid))
+            logging.info(f"{player.name} left the game")
+            for pl in self.players.values():
+                pl.mcprot.write_packet(server_packets.ChatMesage(f"{player.name} left the game"))
+                pl.mcprot.write_packet(server_packets.PlayerListItem(player.name, False, 0))
+
+        tick_timer.add_event(1, lambda: callback(self, player, reason))
 
     def get_status(self) -> dict:
         """Return a json-dict for the server list ping"""

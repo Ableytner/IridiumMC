@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from core.iridium_server import IridiumServer
 
 from dataclass.position import Position
+from dataclass.save import Block
 from network import handshake_packets, client_packets, server_packets
 from core import binary_operations
 from network.packet import ClientPacket
@@ -38,7 +39,7 @@ class ChatMessage(ClientPacket): # 0x01
         for pl in server.players.values():
             pl.mcprot.write_packet(server_packets.ChatMesage(f"[{player.name}] {self.message}"))
 
-class Player(ClientPacket):  # 0x03 PlayerOnGround
+class PlayerP(ClientPacket):  # 0x03 PlayerOnGround
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -94,6 +95,27 @@ class PlayerPositionAndLook(ClientPacket): # 0x06
         player.rot = (self.yaw, self.pitch)
         player.on_ground = self.on_ground
 
+class PlayerDigging(ClientPacket): # 0x07
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def load(self):
+        # 0: Started digging
+        # 1: Cancelled digging
+        # 2: Finished digging
+        # 3: Drop item stack
+        # 4: Drop item
+        # 5: Shoot arrow / finish eating
+        self.status = binary_operations._decode_byte(self.stream)
+        self.x = binary_operations._decode_int(self.stream)
+        self.y = binary_operations._decode_unsigned_byte(self.stream)
+        self.z = binary_operations._decode_int(self.stream)
+        self.face = binary_operations._decode_byte(self.stream)
+
+    def process(self, server: "IridiumServer", player: "Player"):
+        if self.status == 2:
+            server.world.set_block(Position(self.x, self.y, self.z), Block.air())
+
 class ClientSettings(ClientPacket): # 0x15
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -107,7 +129,7 @@ class ClientSettings(ClientPacket): # 0x15
         self.show_cape = binary_operations._decode_boolean(self.stream)
 
     def process(self, server: "IridiumServer", player: "Player"):
-        pass
+        player.view_dist = self.view_distance
 
 class PluginMessage(ClientPacket): # 0x17
     def __init__(self, **kwargs):
@@ -157,10 +179,11 @@ class EntityAction(ClientPacket): # 0x0B
 packet_id_map = {
     0x00: KeepAlive,
     0x01: ChatMessage,
-    0x03: Player,
+    0x03: PlayerP,
     0x04: PlayerPosition,
     0x05: PlayerLook,
     0x06: PlayerPositionAndLook,
+    0x07: PlayerDigging,
     0x15: ClientSettings,
     0x17: PluginMessage,
     0x0A: Animation,

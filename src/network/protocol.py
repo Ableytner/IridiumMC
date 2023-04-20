@@ -45,8 +45,11 @@ class MinecraftProtocol():
         if not isinstance(constr_packet, packet.ServerPacket):
             raise TypeError(f"Tried to write packet of type {type(constr_packet)} which doesn't derive from {packet.ServerPacket}")
 
-        logging.debug(f"Writing packet: {type(constr_packet)}")
-        constr_packet.reply(self.socket)
+        try:
+            logging.debug(f"Writing packet: {type(constr_packet)}")
+            constr_packet.reply(self.socket)
+        except OSError as oserr:
+            logging.debug(oserr)
 
     def handle_status(self, status_json: dict) -> None:
         """Handle the server list ping"""
