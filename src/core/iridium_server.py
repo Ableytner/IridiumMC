@@ -153,8 +153,10 @@ class IridiumServer():
         """Cleanly disconnect the given player"""
 
         def callback(self, player, reason):
-            if reason is not None:
-                player.mcprot.write_packet(server_packets.Disconnect(reason))
+            if reason is None:
+                reason = "Disconnected"
+            player.mcprot.write_packet(server_packets.Disconnect(reason))
+
             self.players.pop(str(player.uuid))
             logging.info(f"{player.name} left the game")
             for pl in self.players.values():
