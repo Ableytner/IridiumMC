@@ -1,3 +1,5 @@
+from dataclass.position import Position
+from dataclass.rotation import Rotation
 from entities.entity import Entity
 
 class TileEntity(Entity):

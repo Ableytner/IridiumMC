@@ -1,5 +1,6 @@
 from dataclass.position import Position
-from dataclass.save import Block, Chunk, ChunkColumn, World
+from dataclass.save import World
+from blocks import tnt
 
 class WorldGenerator():
     def __init__(self, level_type, world: World) -> None:
@@ -21,4 +22,5 @@ class WorldGenerator():
                 for x in range(16):
                     for z in range(16):
                         if (y) <= 5:
-                            self.world.set_block(Position(start_pos_x + x, y, start_pos_z + z), Block(17))
+                            block_pos = Position(start_pos_x + x, y, start_pos_z + z)
+                            self.world.set_block(block_pos, tnt.TNT(block_pos))

@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from core.iridium_server import IridiumServer
 
 from dataclass.position import Position
-from dataclass.save import Block
+from blocks.air import Air
 from network import handshake_packets, client_packets, server_packets
 from core import binary_operations
 from network.packet import ClientPacket
@@ -114,7 +114,8 @@ class PlayerDigging(ClientPacket): # 0x07
 
     def process(self, server: "IridiumServer", player: "Player"):
         if self.status == 2:
-            server.world.set_block(Position(self.x, self.y, self.z), Block.air())
+            block_pos = Position(self.x, self.y, self.z)
+            server.world.set_block(block_pos, Air(block_pos))
 
 class ClientSettings(ClientPacket): # 0x15
     def __init__(self, **kwargs):

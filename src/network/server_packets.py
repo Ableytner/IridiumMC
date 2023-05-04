@@ -5,6 +5,7 @@ import math
 
 from core import binary_operations
 from dataclass.position import Position
+from dataclass.rotation import Rotation
 from network.packet import ServerPacket
 
 packet_id_map: dict
@@ -57,7 +58,7 @@ class SpawnPosition(ServerPacket): # 0x05
                                          binary_operations._encode_int(self.position.z))
 
 class PlayerPositionAndLook(ServerPacket): # 0x08
-    def __init__(self, position: Position, look: tuple[float, float], on_ground: bool, **kwargs):
+    def __init__(self, position: Position, look: Rotation, on_ground: bool, **kwargs):
         super().__init__(**kwargs)
         self.position = position
         self.look = look
@@ -68,8 +69,8 @@ class PlayerPositionAndLook(ServerPacket): # 0x08
                                          binary_operations._encode_double(self.position.x) +
                                          binary_operations._encode_double(self.position.y) +
                                          binary_operations._encode_double(self.position.z) +
-                                         binary_operations._encode_float(self.look[0]) + # yaw
-                                         binary_operations._encode_float(self.look[1]) + # pitch
+                                         binary_operations._encode_float(self.look.yaw) + # yaw
+                                         binary_operations._encode_float(self.look.pitch) + # pitch
                                          binary_operations._encode_boolean(self.on_ground))
 
 class MapChunkBulk(ServerPacket): # 0x26

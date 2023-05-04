@@ -7,15 +7,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from core.iridium_server import IridiumServer
 from dataclass.position import Position
+from blocks.air import Air
+from blocks.block import Block
 from core import binary_operations
-
-@dataclass
-class Block():
-    block_id: int
-
-    @staticmethod
-    def air() -> Block:
-        return Block(0)
 
 @dataclass
 class Chunk():
@@ -27,7 +21,7 @@ class Chunk():
     def get_block(self, pos: Position) -> Block:
         block_pos = self._pos_to_int(pos)
         if not block_pos in self.blocks.keys():
-            return Block.air()
+            return Air(block_pos)
         return self.blocks[self._pos_to_int(pos)]
 
     def to_packet_data(self) -> tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
@@ -42,12 +36,7 @@ class Chunk():
             for y in range(chunk_c, chunk_c + 16):
                 for z in range(16):
                     for x in range(16):
-                        try:
-                            block = self.blocks[self._pos_to_int(Position(x, y, z))]
-                        except KeyError:
-                            block = Block.air()
-
-                        block_types.append(block.block_id)
+                        block_types.append(self.get_block(Position(x, y, z)).block_id)
                         block_metadatas.append(0b0110) # broken
                         block_lights.append(0b100) # can't check if its working
                         sky_lights.append(0b1111)

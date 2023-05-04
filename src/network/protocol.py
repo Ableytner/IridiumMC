@@ -5,7 +5,7 @@ import uuid
 from socket import socket
 
 from core import binary_operations
-from core.readable_buffer import ReadableBuffer
+from network.readable_buffer import ReadableBuffer
 from network import packet, handshake_packets, server_packets, status_packets, login_packets, client_packets
 
 STATUS_STATE = 1

@@ -9,12 +9,14 @@ from socketserver import ThreadingTCPServer
 from threading import Thread
 from time import sleep
 
-from core import binary_operations, tick_timer
+from core import tick_timer, server_provider
 from core.worldgen import WorldGenerator
 from dataclass import metadata
 from dataclass.player import Player
 from dataclass.position import Position
+from dataclass.rotation import Rotation
 from dataclass.save import World
+from entities.player_entity import PlayerEntity
 from network import handshake_packets, packet, server_packets
 from network.protocol import MinecraftProtocol
 
@@ -30,10 +32,9 @@ class IridiumServer():
         self.server = None
         self.world = World(self, 0)
         self.world_gen = WorldGenerator("flat", self.world)
-        self.players: dict[str, Player] = {}
-        IridiumServer.inst = self
+        self.players: dict[str, PlayerEntity] = {}
+        server_provider._iridium_server = self
 
-    inst = None
     TPS = TPS
     VIEW_DIST = VIEW_DIST
 
@@ -80,7 +81,7 @@ class IridiumServer():
     def handle_client_connect(request: socket, client_address: tuple[str, int], server: ThreadingTCPServer) -> None:
         """Callback when a new client connects"""
 
-        self = IridiumServer.inst
+        self = server_provider.get()
         logging.debug("Client connected!")
 
         mcprot = MinecraftProtocol(request)
@@ -92,7 +93,7 @@ class IridiumServer():
         elif conn_info.is_login_next():
             uuid, name = mcprot.handle_login()
             # create a new player object
-            player = Player(self, uuid, name, Position(0, 10, 0), (0, 0), False, self.VIEW_DIST, mcprot)
+            player = PlayerEntity(uuid, name, 12, mcprot, health=20, position=Position(0, 10, 0), rotation=Rotation(0, 0), on_ground=False)
             logging.info(f"{name} joined the game")
 
             # send player joined message
@@ -100,7 +101,7 @@ class IridiumServer():
                 pl.mcprot.write_packet(server_packets.ChatMesage(f"{name} joined the game"))
 
             # send pos and rot to new player
-            player.mcprot.write_packet(server_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
+            player.mcprot.write_packet(server_packets.PlayerPositionAndLook(player.position, player.rotation, player.on_ground))
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
             return
@@ -131,7 +132,7 @@ class IridiumServer():
         # player network loop
         player.network_func()
 
-    def handle_keepalive(self, player: Player):
+    def handle_keepalive(self, player: PlayerEntity):
         """Decrease keepalive timer, disconnect if timed out"""
 
         player.keepalive[1] -= 1
@@ -149,7 +150,7 @@ class IridiumServer():
     def generate_chunk(self, x: int, z: int) -> None:
         self.world_gen.generate_chunk_column(x, z)
 
-    def disconnect_player(self, player: Player, reason: str = None):
+    def disconnect_player(self, player: PlayerEntity, reason: str = None):
         """Cleanly disconnect the given player"""
 
         def callback(self, player, reason):
