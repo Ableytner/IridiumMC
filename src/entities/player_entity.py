@@ -3,16 +3,19 @@ import struct
 import uuid
 from dataclasses import dataclass
 from queue import Queue
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from network.protocol import MinecraftProtocol
 
 from core import server_provider
 from network import server_packets
 from dataclass.save import World
 from dataclass.position import Position
 from entities.living_entity import LivingEntity
-from network.protocol import MinecraftProtocol
 
 class PlayerEntity(LivingEntity):
-    def __init__(self, uuid: uuid.UUID, name: str, view_dist: int, mcprot: MinecraftProtocol, **kwargs) -> None:
+    def __init__(self, uuid: uuid.UUID, name: str, view_dist: int, mcprot: "MinecraftProtocol", **kwargs) -> None:
         super().__init__(**kwargs)
         self.uuid = uuid
         self.name = name

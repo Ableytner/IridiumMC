@@ -2,13 +2,15 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from dataclass.player import Player
     from core.iridium_server import IridiumServer
 
+from core import server_provider
+from entities.player_entity import PlayerEntity
 from dataclass.position import Position
-from blocks.air import Air
 from network import handshake_packets, client_packets, server_packets
 from core import binary_operations
+from events.event_factory import EventFactory
+from events import block_break_event
 from network.packet import ClientPacket
 
 class KeepAlive(ClientPacket): # 0x00
@@ -18,14 +20,14 @@ class KeepAlive(ClientPacket): # 0x00
     def load(self):
         self.keep_alive_id = binary_operations._decode_int(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         if self.keep_alive_id == player.keepalive[2]:
             player.keepalive[0] = 0 # switch to WAITING
-            player.keepalive[1] = server.TPS * 5 # wait for 5 seconds until next keepalive
+            player.keepalive[1] = server_provider.get().TPS * 5 # wait for 5 seconds until next keepalive
             player.keepalive[2] = 0
         else:
             # client sent back the wrong keepalive_id
-            server.disconnect_player(player, "KeepAliveID is incorrect")
+            server_provider.get().disconnect_player(player, "KeepAliveID is incorrect")
 
 class ChatMessage(ClientPacket): # 0x01
     def __init__(self, **kwargs):
@@ -34,9 +36,9 @@ class ChatMessage(ClientPacket): # 0x01
     def load(self):
         self.message = binary_operations._decode_string(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         logging.info(f"[{player.name}] {self.message}")
-        for pl in server.players.values():
+        for pl in server_provider.get().players.values():
             pl.mcprot.write_packet(server_packets.ChatMesage(f"[{player.name}] {self.message}"))
 
 class PlayerP(ClientPacket):  # 0x03 PlayerOnGround
@@ -46,7 +48,7 @@ class PlayerP(ClientPacket):  # 0x03 PlayerOnGround
     def load(self):
         self.on_ground = binary_operations._decode_boolean(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         player.on_ground = self.on_ground
 
 class PlayerPosition(ClientPacket): # 0x04
@@ -60,7 +62,7 @@ class PlayerPosition(ClientPacket): # 0x04
         self.z = binary_operations._decode_double(self.stream)
         self.on_ground = binary_operations._decode_boolean(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         player.pos = Position(self.x, self.heady, self.z)
         player.on_ground = self.on_ground
 
@@ -73,7 +75,7 @@ class PlayerLook(ClientPacket): # 0x05
         self.pitch = binary_operations._decode_float(self.stream)
         self.on_ground = binary_operations._decode_boolean(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         player.rot = (self.yaw, self.pitch)
         player.on_ground = self.on_ground
 
@@ -90,7 +92,7 @@ class PlayerPositionAndLook(ClientPacket): # 0x06
         self.pitch = binary_operations._decode_float(self.stream)
         self.on_ground = binary_operations._decode_boolean(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         player.pos = Position(self.x, self.heady, self.z)
         player.rot = (self.yaw, self.pitch)
         player.on_ground = self.on_ground
@@ -112,10 +114,13 @@ class PlayerDigging(ClientPacket): # 0x07
         self.z = binary_operations._decode_int(self.stream)
         self.face = binary_operations._decode_byte(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
+        logging.warning("Now2")
         if self.status == 2:
             block_pos = Position(self.x, self.y, self.z)
-            server.world.set_block(block_pos, Air(block_pos))
+            block = server_provider.get().world.get_block(block_pos)
+            logging.warning("Now")
+            EventFactory.call(block_break_event.BlockBreakEvent(player, block))
 
 class ClientSettings(ClientPacket): # 0x15
     def __init__(self, **kwargs):
@@ -129,7 +134,7 @@ class ClientSettings(ClientPacket): # 0x15
         self.difficulty = binary_operations._decode_byte(self.stream)
         self.show_cape = binary_operations._decode_boolean(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         player.view_dist = self.view_distance
 
 class PluginMessage(ClientPacket): # 0x17
@@ -141,7 +146,7 @@ class PluginMessage(ClientPacket): # 0x17
         self.length = binary_operations._decode_short(self.stream)
         self.data = binary_operations._decode_bytearray(self.stream, self.length)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         pass
 
 class Animation(ClientPacket): # 0x0A
@@ -162,7 +167,7 @@ class Animation(ClientPacket): # 0x0A
         # 104: Crouch
         # 105: Uncrouch
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         pass
 
 class EntityAction(ClientPacket): # 0x0B
@@ -174,7 +179,7 @@ class EntityAction(ClientPacket): # 0x0B
         self.action_id = binary_operations._decode_byte(self.stream)
         self.jump_boost = binary_operations._decode_int(self.stream)
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: PlayerEntity):
         pass
 
 packet_id_map = {

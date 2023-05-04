@@ -12,7 +12,6 @@ from time import sleep
 from core import tick_timer, server_provider
 from core.worldgen import WorldGenerator
 from dataclass import metadata
-from dataclass.player import Player
 from dataclass.position import Position
 from dataclass.rotation import Rotation
 from dataclass.save import World
@@ -21,7 +20,7 @@ from network import handshake_packets, packet, server_packets
 from network.protocol import MinecraftProtocol
 
 TPS = 20
-VIEW_DIST = 12
+VIEW_DIST = 1
 
 class IridiumServer():
     """The server core"""
@@ -64,8 +63,8 @@ class IridiumServer():
 
                     while not player.network_in.empty():
                         conn_info: packet.ClientPacket = player.network_in.get()
-                        conn_info.process(self, player)
-                    
+                        conn_info.process(player)
+
                     player.load_chunks(self.world)
                 except OSError as oserr:
                     # player disconnected client-side
@@ -76,6 +75,8 @@ class IridiumServer():
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
             if sleep_time > 0:
                 sleep(sleep_time)
+            else:
+                logging.warning(f"One tick took {int((datetime.now() - start_time).total_seconds() * 1000)} ms, is the server hanging?")
 
     @staticmethod
     def handle_client_connect(request: socket, client_address: tuple[str, int], server: ThreadingTCPServer) -> None:
@@ -93,7 +94,7 @@ class IridiumServer():
         elif conn_info.is_login_next():
             uuid, name = mcprot.handle_login()
             # create a new player object
-            player = PlayerEntity(uuid, name, 12, mcprot, health=20, position=Position(0, 10, 0), rotation=Rotation(0, 0), on_ground=False)
+            player = PlayerEntity(uuid, name, self.VIEW_DIST, mcprot, health=20, position=Position(0, 10, 0), rotation=Rotation(0, 0), on_ground=False)
             logging.info(f"{name} joined the game")
 
             # send player joined message

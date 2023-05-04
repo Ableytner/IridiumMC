@@ -1,11 +1,12 @@
+import logging
+
 from events.event import Event
-from entities.entity import Entity
 
 class EventFactory():
-    def __init__(self) -> None:
-        self._callbacks = {}
+    _callbacks = {}
     
-    def register_callback(self, event_type: type, callback):
+    @classmethod
+    def register_callback(cls, event_type: type, callback):
         """Add a callback for a given event type"""
 
         if not isinstance(event_type, type):
@@ -14,12 +15,18 @@ class EventFactory():
         if not issubclass(event_type, Event):
             raise TypeError(f"Tried to register a callback to event type {event_type}, which doesn't derive from {Event}")
 
-        if not event_type in self._callbacks.keys():
-            self._callbacks[event_type] = []
-        self._callbacks[event_type].append(callback)
+        if not event_type in cls._callbacks.keys():
+            cls._callbacks[event_type] = []
+        cls._callbacks[event_type].append(callback)
 
-    def call(self, caller: Entity, event: Event):
-        """Call all callbacks with the caller and event as parameters"""
+    @classmethod
+    def call(cls, event: Event):
+        """Call all callbacks with the event as the parameter"""
 
-        for callback in self._callbacks[type(event)]:
-            callback(caller, event)
+        logging.info(f"Called event {type(event)}")
+
+        if type(event) not in cls._callbacks.keys():
+            logging.warning(f"Event {type(event)} was raised, but has no associated callbacks")
+
+        for callback in cls._callbacks[type(event)]:
+            callback(event)
