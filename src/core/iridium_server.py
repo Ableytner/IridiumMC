@@ -20,7 +20,7 @@ from network import handshake_packets, packet, server_packets
 from network.protocol import MinecraftProtocol
 
 TPS = 20
-VIEW_DIST = 1
+VIEW_DIST = 2
 
 class IridiumServer():
     """The server core"""

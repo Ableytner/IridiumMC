@@ -31,8 +31,11 @@ class PlayerEntity(LivingEntity):
         self.loaded_chunks = {}
 
     def load_chunks(self, world: World):
+        chunk_radius = self.view_dist
+        if chunk_radius > server_provider.get().VIEW_DIST:
+            chunk_radius = server_provider.get().VIEW_DIST
         center_chunk_pos = Position(self.position.x//16, self.position.y, self.position.z//16)
-        for dist_to_center_blocks in range(self.view_dist):
+        for dist_to_center_blocks in range(chunk_radius):
             for x in range(int(center_chunk_pos.x - dist_to_center_blocks), int(center_chunk_pos.x + dist_to_center_blocks)):
                 for z in range(int(center_chunk_pos.z - dist_to_center_blocks), int(center_chunk_pos.z + dist_to_center_blocks)):
                     if not self._is_chunk_loaded(x, z):
