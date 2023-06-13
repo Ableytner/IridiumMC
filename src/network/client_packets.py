@@ -1,3 +1,5 @@
+"""Packets sent by the client"""
+
 import logging
 from typing import TYPE_CHECKING
 
@@ -12,6 +14,8 @@ from core import binary_operations
 from events.event_factory import EventFactory
 from events import block_break_event
 from network.packet import ClientPacket
+from events.block_break_event import BlockBreakEvent
+from blocks import air
 
 class KeepAlive(ClientPacket): # 0x00
     def __init__(self, **kwargs):
@@ -120,6 +124,14 @@ class PlayerDigging(ClientPacket): # 0x07
             block = server_provider.get().world.get_block(block_pos)
             EventFactory.call(block_break_event.BlockBreakEvent(player, block, block_pos))
 
+    @staticmethod
+    def break_block_callback(event: BlockBreakEvent):
+        self = server_provider.get()
+        self.world.set_block(event.position, air.Air())
+        for uuid, player in self.players.items():
+            if uuid != str(event.player.uuid) and player.position.dist_to_horizontal(event.player.position) <= player.view_dist:
+                player.mcprot.write_packet(server_packets.BlockChange(event.position, air.Air.block_id, 0x00000000))
+
 class ClientSettings(ClientPacket): # 0x15
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -133,7 +145,10 @@ class ClientSettings(ClientPacket): # 0x15
         self.show_cape = binary_operations._decode_boolean(self.stream)
 
     def process(self, player: PlayerEntity):
-        player.view_dist = self.view_distance
+        if self.view_distance <= server_provider.get().VIEW_DIST:
+            player.view_dist = self.view_distance
+        else:
+            player.view_dist = server_provider.get().VIEW_DIST
 
 class PluginMessage(ClientPacket): # 0x17
     def __init__(self, **kwargs):

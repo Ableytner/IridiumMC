@@ -1,5 +1,6 @@
+"""Packets sent by the server"""
+
 import json
-import uuid
 import random
 import math
 
@@ -20,17 +21,23 @@ class KeepAlive(ServerPacket): # 0x00
                                          binary_operations._encode_int(self.keep_alive_id)) # random integer
 
 class JoinGame(ServerPacket): # 0x01
-    def __init__(self, **kwargs):
+    def __init__(self, entity_id: int, gamemode: int, dim_id: int, difficulty: int, max_players: int, level_type: str, **kwargs):
         super().__init__(**kwargs)
+        self.entity_id = entity_id
+        self.gamemode = gamemode
+        self.dim_id = dim_id
+        self.difficulty = difficulty
+        self.max_players = max_players
+        self.level_type = level_type
 
     def reply(self, socket_conn):
         super().reply(socket_conn, data=binary_operations._encode_varint(0x01) +
-                                         binary_operations._encode_int(-1) + # player entity id
-                                         binary_operations._encode_unsigned_byte(0) + # gamemode, 0=survival, 1=creative
-                                         binary_operations._encode_byte(0) + # dimension, -1=nether, 0=overworld, 1=end
-                                         binary_operations._encode_unsigned_byte(0) + # difficulty, 0=peaceful
-                                         binary_operations._encode_unsigned_byte(5) + # max players
-                                         binary_operations._encode_string("default")) # level type
+                                         binary_operations._encode_int(self.entity_id) + # player entity id
+                                         binary_operations._encode_unsigned_byte(self.gamemode) + # gamemode, 0=survival, 1=creative
+                                         binary_operations._encode_byte(self.dim_id) + # dimension, -1=nether, 0=overworld, 1=end
+                                         binary_operations._encode_unsigned_byte(self.difficulty) + # difficulty, 0=peaceful
+                                         binary_operations._encode_unsigned_byte(self.max_players) + # max players
+                                         binary_operations._encode_string(self.level_type)) # level type
 
 class ChatMesage(ServerPacket): # 0x02
     def __init__(self, message: str|dict, **kwargs):
@@ -69,9 +76,24 @@ class PlayerPositionAndLook(ServerPacket): # 0x08
                                          binary_operations._encode_double(self.position.x) +
                                          binary_operations._encode_double(self.position.y) +
                                          binary_operations._encode_double(self.position.z) +
-                                         binary_operations._encode_float(self.look.yaw) + # yaw
-                                         binary_operations._encode_float(self.look.pitch) + # pitch
+                                         binary_operations._encode_float(self.look.yaw) +
+                                         binary_operations._encode_float(self.look.pitch) +
                                          binary_operations._encode_boolean(self.on_ground))
+
+class BlockChange(ServerPacket): # 0x23
+    def __init__(self, position: Position, block_id: int, metadata: bytes, **kwargs):
+        super().__init__(**kwargs)
+        self.position = position
+        self.block_id = block_id
+        self.metadata = metadata
+
+    def reply(self, socket_conn):
+        super().reply(socket_conn, data=binary_operations._encode_varint(0x23) +
+                                         binary_operations._encode_int(self.position.x) +
+                                         binary_operations._encode_unsigned_byte(self.position.y) +
+                                         binary_operations._encode_int(self.position.z) +
+                                         binary_operations._encode_varint(self.block_id) +
+                                         binary_operations._encode_unsigned_byte(self.metadata))
 
 class MapChunkBulk(ServerPacket): # 0x26
     def __init__(self, chunk_column_count: int, data_len: int, sky_light: bool, data: bytes, metadata: bytes, **kwargs):
@@ -118,7 +140,7 @@ class Disconnect(ServerPacket): # 0x40
                                         binary_operations._encode_string(self.reason))
 
 class SpawnPlayer(ServerPacket): #0x0C
-    def __init__(self, entity_id: int, player_uuid: str, player_name: str, data: bytes, pos: Position, rot: tuple[float, float], current_item: int, metadata: bytes, **kwargs):
+    def __init__(self, entity_id: int, player_uuid: str, player_name: str, data: bytes, pos: Position, rot: Rotation, current_item: int, metadata: bytes, **kwargs):
         super().__init__(**kwargs)
         self.entity_id = entity_id
         self.player_uuid = player_uuid
@@ -131,14 +153,15 @@ class SpawnPlayer(ServerPacket): #0x0C
 
     def reply(self, socket_conn):
         super().reply(socket_conn, data=binary_operations._encode_varint(0x0C) +
+                                        binary_operations._encode_varint(self.entity_id) +
                                         binary_operations._encode_string(self.player_uuid) +
                                         binary_operations._encode_string(self.player_name) +
                                         binary_operations._encode_varint(len(self.data)) +
                                         self.data +
-                                        binary_operations._encode_int(self.pos.x) +
-                                        binary_operations._encode_int(self.pos.y) +
-                                        binary_operations._encode_int(self.pos.z) +
-                                        binary_operations._encode_byte(self.rot[0]) +
-                                        binary_operations._encode_byte(self.rot[1]) +
+                                        binary_operations._encode_int(int(self.pos.x * 32)) + # positions as fixed-point numbers
+                                        binary_operations._encode_int(int(self.pos.y * 32)) +
+                                        binary_operations._encode_int(int(self.pos.z * 32)) +
+                                        binary_operations._encode_byte(self.rot.yaw) +
+                                        binary_operations._encode_byte(self.rot.pitch) +
                                         binary_operations._encode_short(self.current_item) +
                                         self.metadata)

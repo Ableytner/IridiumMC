@@ -2,12 +2,12 @@ import base64
 import logging
 import os
 import sys
-import traceback
 from datetime import datetime
 from socket import socket
 from socketserver import ThreadingTCPServer
 from threading import Thread
 from time import sleep
+import uuid
 
 from blocks import air
 from core import tick_timer, server_provider
@@ -19,11 +19,12 @@ from dataclass.save import World
 from entities.player_entity import PlayerEntity
 from events.event_factory import EventFactory
 from events.block_break_event import BlockBreakEvent
-from network import handshake_packets, packet, server_packets
+from network import handshake_packets, packet, server_packets, client_packets, login_packets
 from network.protocol import MinecraftProtocol
 
 TPS = 20
 VIEW_DIST = 2
+MAX_PLAYERS = 20
 
 class IridiumServer():
     """The server core"""
@@ -39,6 +40,7 @@ class IridiumServer():
 
     TPS = TPS
     VIEW_DIST = VIEW_DIST
+    MAX_PLAYERS = MAX_PLAYERS
 
     def run_server(self):
         """Start the server"""
@@ -50,12 +52,16 @@ class IridiumServer():
         self.world_gen.generate_start_region(Position(0, 0, 0))
         logging.info(f"done")
 
-        # register the block break event
-        EventFactory.register_callback(BlockBreakEvent, IridiumServer.break_block_callback)
+        self.register_callbacks()
 
         # start the game loop
         Thread(target=self.mainloop, daemon=True).start()
         self.server.serve_forever()
+
+    def register_callbacks(self):
+        """Register callbacks"""
+
+        EventFactory.register_callback(BlockBreakEvent, client_packets.PlayerDigging.break_block_callback)
 
     def mainloop(self):
         """The game loop"""
@@ -98,9 +104,17 @@ class IridiumServer():
             mcprot.handle_status(self.get_status())
             return
         elif conn_info.is_login_next():
-            uuid, name = mcprot.handle_login()
+            conn_info = mcprot.read_packet(login_packets.LoginStart)
+
+            entity_id = len(self.players)+1
+            player_uuid = uuid.uuid4()
+            name = conn_info.name
+
+            mcprot.write_packet(login_packets.LoginSuccess(name, player_uuid))
+            mcprot.write_packet(server_packets.JoinGame(entity_id, 0, 0, 0, self.MAX_PLAYERS, "default"))
+
             # create a new player object
-            player = PlayerEntity(uuid, name, self.VIEW_DIST, mcprot, health=20, position=Position(0, 10, 0), rotation=Rotation(0, 0), on_ground=False)
+            player = PlayerEntity(player_uuid, name, self.VIEW_DIST, mcprot, health=20, position=Position(20, 10, 10), rotation=Rotation(0, 0), on_ground=False, entity_id=entity_id)
             logging.info(f"{name} joined the game")
 
             # send player joined message
@@ -127,14 +141,14 @@ class IridiumServer():
             # test_player_data = binary_operations._encode_string("textures") + binary_operations._encode_string(base64.b64encode("textures".encode("ascii")).decode("ascii")) + binary_operations._encode_string(base64.b64encode("textures".encode("ascii")).decode("ascii"))
             # test_player_data2 = binary_operations._encode_string("t") + binary_operations._encode_string("a") + binary_operations._encode_string("s")
             player_metadata = metadata.Human(health=10).to_bytes() + metadata.STOP_BYTE
-            if pl.pos.dist_to_horizontal(player.position) < self.VIEW_DIST:
-                # pl.mcprot.write_packet(server_packets.SpawnPlayer(-1, str(player.uuid), player.name, test_player_data, player.pos, player.rot, 0, player_metadata)) 
+            if pl.pos.dist_to_horizontal(player.position) < self.VIEW_DIST * 16:
+                # pl.mcprot.write_packet(server_packets.SpawnPlayer(player.entity_id, str(player.uuid), player.name, b"", player.position, player.rotation, 0, player_metadata))
                 pass
 
         # add self to tab list
         player.mcprot.write_packet(server_packets.PlayerListItem(player.name, True, 0))
 
-        self.players[str(uuid)] = player
+        self.players[str(player.uuid)] = player
 
         # player network loop
         player.network_func()
@@ -156,10 +170,6 @@ class IridiumServer():
 
     def generate_chunk(self, x: int, z: int) -> None:
         self.world_gen.generate_chunk_column(x, z)
-
-    @staticmethod
-    def break_block_callback(event: BlockBreakEvent):
-        server_provider.get().world.set_block(event.position, air.Air())
 
     def disconnect_player(self, player: PlayerEntity, reason: str = None):
         """Cleanly disconnect the given player"""
@@ -195,7 +205,7 @@ class IridiumServer():
                 "protocol": handshake_packets.DEFAULT_PROTOCOL_VERSION
             },
             "players": {
-                "max": 20,
+                "max": self.MAX_PLAYERS,
                 "online": len(self.players),
                 "sample": []
             },

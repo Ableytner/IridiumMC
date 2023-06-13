@@ -94,9 +94,7 @@ class ChunkColumn():
         primary_bitmap = 0
 
         for c in range(16):
-            if c not in self.chunks.keys():
-                primary_bitmap += (0 << c)
-            else:
+            if c in self.chunks.keys():
                 chunk_data = self.chunks[c].to_packet_data()
                 block_type += chunk_data[0]
                 block_metadata += chunk_data[1]

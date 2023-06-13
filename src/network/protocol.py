@@ -58,12 +58,3 @@ class MinecraftProtocol():
         self.write_packet(status_packets.StatusResponse(status_json))
         conn_info = self.read_packet(status_packets.PingRequest)
         self.write_packet(status_packets.PingResponse(time=conn_info.time))
-
-    def handle_login(self) -> tuple[uuid.UUID, str]:
-        """Handle client login"""
-
-        conn_info = self.read_packet(login_packets.LoginStart)
-        player_uuid = uuid.uuid4()
-        self.write_packet(login_packets.LoginSuccess(conn_info.name, player_uuid))
-        self.write_packet(server_packets.JoinGame())
-        return (player_uuid, conn_info.name)
