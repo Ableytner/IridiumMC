@@ -26,7 +26,7 @@ class EventFactory():
         logging.info(f"Called event {type(event)}")
 
         if type(event) not in cls._callbacks.keys():
-            logging.warning(f"Event {type(event)} was raised, but has no associated callbacks")
+            logging.warning(f"Event {type(event)} was called, but has no associated callbacks")
             return
 
         for callback in cls._callbacks[type(event)]:
