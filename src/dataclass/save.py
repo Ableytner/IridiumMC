@@ -21,7 +21,7 @@ class Chunk():
     def get_block(self, pos: Position) -> Block:
         block_pos = self._pos_to_int(pos)
         if not block_pos in self.blocks.keys():
-            return Air(block_pos)
+            return Air()
         return self.blocks[self._pos_to_int(pos)]
 
     def to_packet_data(self) -> tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
@@ -76,7 +76,7 @@ class ChunkColumn():
 
     def get_block(self, pos: Position) -> Block:
         if not (pos.y//16) in self.chunks:
-            return Block.air()
+            return Air()
         return self.chunks[pos.y//16].get_block(Position(pos.x, pos.y%16, pos.z))
 
     def set_block(self, pos: Position, block: Block) -> None:

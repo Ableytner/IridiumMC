@@ -115,12 +115,10 @@ class PlayerDigging(ClientPacket): # 0x07
         self.face = binary_operations._decode_byte(self.stream)
 
     def process(self, player: PlayerEntity):
-        logging.warning("Now2")
         if self.status == 2:
             block_pos = Position(self.x, self.y, self.z)
             block = server_provider.get().world.get_block(block_pos)
-            logging.warning("Now")
-            EventFactory.call(block_break_event.BlockBreakEvent(player, block))
+            EventFactory.call(block_break_event.BlockBreakEvent(player, block, block_pos))
 
 class ClientSettings(ClientPacket): # 0x15
     def __init__(self, **kwargs):

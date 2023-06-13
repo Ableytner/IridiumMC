@@ -9,6 +9,7 @@ from socketserver import ThreadingTCPServer
 from threading import Thread
 from time import sleep
 
+from blocks import air
 from core import tick_timer, server_provider
 from core.worldgen import WorldGenerator
 from dataclass import metadata
@@ -16,6 +17,8 @@ from dataclass.position import Position
 from dataclass.rotation import Rotation
 from dataclass.save import World
 from entities.player_entity import PlayerEntity
+from events.event_factory import EventFactory
+from events.block_break_event import BlockBreakEvent
 from network import handshake_packets, packet, server_packets
 from network.protocol import MinecraftProtocol
 
@@ -46,6 +49,9 @@ class IridiumServer():
         logging.info("creating world...")
         self.world_gen.generate_start_region(Position(0, 0, 0))
         logging.info(f"done")
+
+        # register the block break event
+        EventFactory.register_callback(BlockBreakEvent, IridiumServer.break_block_callback)
 
         # start the game loop
         Thread(target=self.mainloop, daemon=True).start()
@@ -121,7 +127,7 @@ class IridiumServer():
             # test_player_data = binary_operations._encode_string("textures") + binary_operations._encode_string(base64.b64encode("textures".encode("ascii")).decode("ascii")) + binary_operations._encode_string(base64.b64encode("textures".encode("ascii")).decode("ascii"))
             # test_player_data2 = binary_operations._encode_string("t") + binary_operations._encode_string("a") + binary_operations._encode_string("s")
             player_metadata = metadata.Human(health=10).to_bytes() + metadata.STOP_BYTE
-            if pl.pos.dist_to_horizontal(player.pos) < self.VIEW_DIST:
+            if pl.pos.dist_to_horizontal(player.position) < self.VIEW_DIST:
                 # pl.mcprot.write_packet(server_packets.SpawnPlayer(-1, str(player.uuid), player.name, test_player_data, player.pos, player.rot, 0, player_metadata)) 
                 pass
 
@@ -150,6 +156,10 @@ class IridiumServer():
 
     def generate_chunk(self, x: int, z: int) -> None:
         self.world_gen.generate_chunk_column(x, z)
+
+    @staticmethod
+    def break_block_callback(event: BlockBreakEvent):
+        server_provider.get().world.set_block(event.position, air.Air())
 
     def disconnect_player(self, player: PlayerEntity, reason: str = None):
         """Cleanly disconnect the given player"""

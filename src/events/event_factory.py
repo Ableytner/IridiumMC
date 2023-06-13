@@ -4,7 +4,7 @@ from events.event import Event
 
 class EventFactory():
     _callbacks = {}
-    
+
     @classmethod
     def register_callback(cls, event_type: type, callback):
         """Add a callback for a given event type"""
@@ -27,6 +27,7 @@ class EventFactory():
 
         if type(event) not in cls._callbacks.keys():
             logging.warning(f"Event {type(event)} was raised, but has no associated callbacks")
+            return
 
         for callback in cls._callbacks[type(event)]:
             callback(event)
