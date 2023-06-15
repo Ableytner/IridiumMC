@@ -2,24 +2,29 @@ import base64
 import logging
 import os
 import sys
-import traceback
 from datetime import datetime
 from socket import socket
 from socketserver import ThreadingTCPServer
 from threading import Thread
 from time import sleep
+import uuid
 
-from core import binary_operations, tick_timer
+from blocks import air
+from core import tick_timer, server_provider
 from core.worldgen import WorldGenerator
 from dataclass import metadata
-from dataclass.player import Player
 from dataclass.position import Position
+from dataclass.rotation import Rotation
 from dataclass.save import World
-from network import handshake_packets, packet, server_packets
+from entities.player_entity import PlayerEntity
+from events.event_factory import EventFactory
+from events.block_break_event import BlockBreakEvent
+from network import handshake_packets, packet, server_packets, client_packets, login_packets
 from network.protocol import MinecraftProtocol
 
 TPS = 20
-VIEW_DIST = 12
+VIEW_DIST = 2
+MAX_PLAYERS = 20
 
 class IridiumServer():
     """The server core"""
@@ -30,12 +35,12 @@ class IridiumServer():
         self.server = None
         self.world = World(self, 0)
         self.world_gen = WorldGenerator("flat", self.world)
-        self.players: dict[str, Player] = {}
-        IridiumServer.inst = self
+        self.players: dict[str, PlayerEntity] = {}
+        server_provider._iridium_server = self
 
-    inst = None
     TPS = TPS
     VIEW_DIST = VIEW_DIST
+    MAX_PLAYERS = MAX_PLAYERS
 
     def run_server(self):
         """Start the server"""
@@ -47,9 +52,16 @@ class IridiumServer():
         self.world_gen.generate_start_region(Position(0, 0, 0))
         logging.info(f"done")
 
+        self.register_callbacks()
+
         # start the game loop
         Thread(target=self.mainloop, daemon=True).start()
         self.server.serve_forever()
+
+    def register_callbacks(self):
+        """Register callbacks"""
+
+        EventFactory.register_callback(BlockBreakEvent, client_packets.PlayerDigging.break_block_callback)
 
     def mainloop(self):
         """The game loop"""
@@ -63,8 +75,8 @@ class IridiumServer():
 
                     while not player.network_in.empty():
                         conn_info: packet.ClientPacket = player.network_in.get()
-                        conn_info.process(self, player)
-                    
+                        conn_info.process(player)
+
                     player.load_chunks(self.world)
                 except OSError as oserr:
                     # player disconnected client-side
@@ -75,12 +87,14 @@ class IridiumServer():
             sleep_time = (1 / TPS) - (datetime.now() - start_time).total_seconds()
             if sleep_time > 0:
                 sleep(sleep_time)
+            else:
+                logging.warning(f"One tick took {int((datetime.now() - start_time).total_seconds() * 1000)} ms, is the server hanging?")
 
     @staticmethod
     def handle_client_connect(request: socket, client_address: tuple[str, int], server: ThreadingTCPServer) -> None:
         """Callback when a new client connects"""
 
-        self = IridiumServer.inst
+        self = server_provider.get()
         logging.debug("Client connected!")
 
         mcprot = MinecraftProtocol(request)
@@ -90,9 +104,17 @@ class IridiumServer():
             mcprot.handle_status(self.get_status())
             return
         elif conn_info.is_login_next():
-            uuid, name = mcprot.handle_login()
+            conn_info = mcprot.read_packet(login_packets.LoginStart)
+
+            entity_id = len(self.players)+1
+            player_uuid = uuid.uuid4()
+            name = conn_info.name
+
+            mcprot.write_packet(login_packets.LoginSuccess(name, player_uuid))
+            mcprot.write_packet(server_packets.JoinGame(entity_id, 0, 0, 0, self.MAX_PLAYERS, "default"))
+
             # create a new player object
-            player = Player(self, uuid, name, Position(0, 10, 0), (0, 0), False, self.VIEW_DIST, mcprot)
+            player = PlayerEntity(player_uuid, name, self.VIEW_DIST, mcprot, health=20, position=Position(20, 10, 10), rotation=Rotation(0, 0), on_ground=False, entity_id=entity_id)
             logging.info(f"{name} joined the game")
 
             # send player joined message
@@ -100,7 +122,7 @@ class IridiumServer():
                 pl.mcprot.write_packet(server_packets.ChatMesage(f"{name} joined the game"))
 
             # send pos and rot to new player
-            player.mcprot.write_packet(server_packets.PlayerPositionAndLook(player.pos, player.rot, player.on_ground))
+            player.mcprot.write_packet(server_packets.PlayerPositionAndLook(player.position, player.rotation, player.on_ground))
         else:
             logging.exception(f"unknown next_state {conn_info.next_state}")
             return
@@ -119,19 +141,19 @@ class IridiumServer():
             # test_player_data = binary_operations._encode_string("textures") + binary_operations._encode_string(base64.b64encode("textures".encode("ascii")).decode("ascii")) + binary_operations._encode_string(base64.b64encode("textures".encode("ascii")).decode("ascii"))
             # test_player_data2 = binary_operations._encode_string("t") + binary_operations._encode_string("a") + binary_operations._encode_string("s")
             player_metadata = metadata.Human(health=10).to_bytes() + metadata.STOP_BYTE
-            if pl.pos.dist_to_horizontal(player.pos) < self.VIEW_DIST:
-                # pl.mcprot.write_packet(server_packets.SpawnPlayer(-1, str(player.uuid), player.name, test_player_data, player.pos, player.rot, 0, player_metadata)) 
+            if pl.pos.dist_to_horizontal(player.position) < self.VIEW_DIST * 16:
+                # pl.mcprot.write_packet(server_packets.SpawnPlayer(player.entity_id, str(player.uuid), player.name, b"", player.position, player.rotation, 0, player_metadata))
                 pass
 
         # add self to tab list
         player.mcprot.write_packet(server_packets.PlayerListItem(player.name, True, 0))
 
-        self.players[str(uuid)] = player
+        self.players[str(player.uuid)] = player
 
         # player network loop
         player.network_func()
 
-    def handle_keepalive(self, player: Player):
+    def handle_keepalive(self, player: PlayerEntity):
         """Decrease keepalive timer, disconnect if timed out"""
 
         player.keepalive[1] -= 1
@@ -149,12 +171,14 @@ class IridiumServer():
     def generate_chunk(self, x: int, z: int) -> None:
         self.world_gen.generate_chunk_column(x, z)
 
-    def disconnect_player(self, player: Player, reason: str = None):
+    def disconnect_player(self, player: PlayerEntity, reason: str = None):
         """Cleanly disconnect the given player"""
 
         def callback(self, player, reason):
-            if reason is not None:
-                player.mcprot.write_packet(server_packets.Disconnect(reason))
+            if reason is None:
+                reason = "Disconnected"
+            player.mcprot.write_packet(server_packets.Disconnect(reason))
+
             self.players.pop(str(player.uuid))
             logging.info(f"{player.name} left the game")
             for pl in self.players.values():
@@ -181,7 +205,7 @@ class IridiumServer():
                 "protocol": handshake_packets.DEFAULT_PROTOCOL_VERSION
             },
             "players": {
-                "max": 20,
+                "max": self.MAX_PLAYERS,
                 "online": len(self.players),
                 "sample": []
             },

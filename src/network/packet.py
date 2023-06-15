@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from dataclass.player import Player
+    from entities.player_entity import PlayerEntity
     from core.iridium_server import IridiumServer
 
 from core import binary_operations
@@ -17,7 +17,7 @@ class ClientPacket(Packet):
     def load(self):
         raise NotImplementedError()
 
-    def process(self, server: "IridiumServer", player: "Player"):
+    def process(self, player: "PlayerEntity"):
         raise NotImplementedError()
 
 class ServerPacket(Packet):

@@ -1,4 +1,4 @@
-servers/
+server/
 __pycache__/
 *.pyc
-server/
+settings.json

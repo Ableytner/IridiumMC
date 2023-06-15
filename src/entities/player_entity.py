@@ -1,35 +1,27 @@
 import logging
 import struct
 import uuid
-from dataclasses import dataclass
 from queue import Queue
 from typing import TYPE_CHECKING
 
-from network import server_packets
 if TYPE_CHECKING:
-    from core.iridium_server import IridiumServer
+    from network.protocol import MinecraftProtocol
+
+from core import server_provider
+from network import server_packets
 from dataclass.save import World
 from dataclass.position import Position
-from network.protocol import MinecraftProtocol
+from entities.living_entity import LivingEntity
 
-@dataclass
-class Player():
-    server: "IridiumServer"
-    uuid: uuid.UUID
-    name: str
-    pos: Position
-    rot: tuple[float, float]
-    on_ground: bool
-    view_dist: int
-    mcprot: MinecraftProtocol
-    network_in: Queue = None
-    keepalive: list[int, int, int] = None
-    loaded_chunks: dict[int, dict[int, bool]] = None
+class PlayerEntity(LivingEntity):
+    def __init__(self, uuid: uuid.UUID, name: str, view_dist: int, mcprot: "MinecraftProtocol", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.uuid = uuid
+        self.name = name
+        self.view_dist = view_dist
+        self.mcprot = mcprot
+        self.network_in = Queue()
 
-    def __post_init__(self):
-        if self.network_in is None:
-            self.network_in = Queue()
-        
         # [status_id, remaining, value]
         # status_id: 0=WAITING, 1=SENT_TO_CLIENT
         # remaining: ticks until next status change
@@ -38,12 +30,14 @@ class Player():
         self.loaded_chunks = {}
 
     def load_chunks(self, world: World):
-        center_chunk_pos = Position(self.pos.x//16, self.pos.y, self.pos.z//16)
-        for dist_to_center_blocks in range(self.view_dist):
+        chunk_radius = self.view_dist
+        center_chunk_pos = Position(self.position.x//16, self.position.y, self.position.z//16)
+        for dist_to_center_blocks in range(chunk_radius):
             for x in range(int(center_chunk_pos.x - dist_to_center_blocks), int(center_chunk_pos.x + dist_to_center_blocks)):
                 for z in range(int(center_chunk_pos.z - dist_to_center_blocks), int(center_chunk_pos.z + dist_to_center_blocks)):
                     if not self._is_chunk_loaded(x, z):
                         chunk_data = world.to_packet_data(x, z)
+
                         self.mcprot.write_packet(server_packets.MapChunkBulk(*chunk_data))
                         
                         if not (x in self.loaded_chunks.keys()):
@@ -59,7 +53,7 @@ class Player():
                     self.network_in.put(conn_info)
                 else:
                     logging.error(f"Unknown packet id: {hex(conn_info)}")
-                    self.server.disconnect_player(self, {"text": f"Unknown packet id: {hex(conn_info)}", "bold": True, "color": "dark_green"})
+                    server_provider.get().disconnect_player(self, {"text": f"Unknown packet id: {hex(conn_info)}", "bold": True, "color": "dark_green"})
                     return
             except TimeoutError:
                 pass
@@ -68,7 +62,7 @@ class Player():
             except struct.error as err:
                 # assume that the player disconnected client-side
                 logging.debug(err)
-                self.server.disconnect_player(self)
+                server_provider.get().disconnect_player(self)
                 return
 
     def _is_chunk_loaded(self, chunk_x: int, chunk_z: int) -> bool:
