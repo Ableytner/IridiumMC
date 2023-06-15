@@ -3,7 +3,7 @@ import json
 from core import binary_operations
 from network.packet import ClientPacket, ServerPacket
 
-class StatusRequest(ClientPacket):
+class StatusRequest(ClientPacket): # 0x00
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -35,3 +35,8 @@ class PingResponse(ServerPacket):
     def reply(self, writer):
         super().reply(writer, data=binary_operations._encode_varint(0x01) +
                                                binary_operations._encode_long(self.time))
+
+packet_id_map = {
+    0x00: StatusRequest,
+    0x01: PingRequest
+}
