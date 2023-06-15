@@ -1,3 +1,4 @@
+import atexit
 import base64
 import logging
 import os
@@ -9,9 +10,9 @@ from threading import Thread
 from time import sleep
 import uuid
 
-from blocks import air
 from core import tick_timer, server_provider
 from core.worldgen import WorldGenerator
+from database import json_db_manager
 from dataclass import metadata
 from dataclass.position import Position
 from dataclass.rotation import Rotation
@@ -23,7 +24,7 @@ from network import handshake_packets, packet, server_packets, client_packets, l
 from network.protocol import MinecraftProtocol
 
 TPS = 20
-VIEW_DIST = 2
+VIEW_DIST = 8
 MAX_PLAYERS = 20
 
 class IridiumServer():
@@ -33,8 +34,8 @@ class IridiumServer():
         self.port = port
         self.path = path
         self.server = None
-        self.world = World(self, 0)
-        self.world_gen = WorldGenerator("flat", self.world)
+        self.world = None
+        self.world_gen = None
         self.players: dict[str, PlayerEntity] = {}
         server_provider._iridium_server = self
 
@@ -48,11 +49,18 @@ class IridiumServer():
         logging.info(f"IridiumMC server starting on port {self.port}")
         self.server = ThreadingTCPServer(("0.0.0.0", self.port), self.handle_client_connect)
 
+        logging.info("loading world...")
+        self.world = json_db_manager.load_world()
+        logging.info("done")
+
         logging.info("creating world...")
+        self.world_gen = WorldGenerator("flat", self.world)
         self.world_gen.generate_start_region(Position(0, 0, 0))
-        logging.info(f"done")
+        logging.info("done")
 
         self.register_callbacks()
+
+        atexit.register(self._exit_handler)
 
         # start the game loop
         Thread(target=self.mainloop, daemon=True).start()
@@ -101,7 +109,7 @@ class IridiumServer():
         conn_info = mcprot.read_packet(handshake_packets.Handshake)
 
         if conn_info.is_status_next():
-            mcprot.handle_status(self.get_status())
+            mcprot.handle_status(self._get_status())
             return
         elif conn_info.is_login_next():
             conn_info = mcprot.read_packet(login_packets.LoginStart)
@@ -187,7 +195,19 @@ class IridiumServer():
 
         tick_timer.add_event(1, lambda: callback(self, player, reason))
 
-    def get_status(self) -> dict:
+    def _exit_handler(self) -> None:
+        """Clean up if server exits"""
+
+        # disconnect all players
+        for player in self.players:
+            self.disconnect_player(player, "Server closed")
+        
+        # save world
+        logging.info("saving world...")
+        json_db_manager.save_world(self.world)
+        logging.info("done")
+
+    def _get_status(self) -> dict:
         """Return a json-dict for the server list ping"""
 
         image_path = "server/server-icon.png"
