@@ -17,6 +17,10 @@ class WorldGenerator():
                 self.generate_chunk_column(((position.x//16) * 16) + x, ((position.z//16) * 16) + z)
 
     def generate_chunk_column(self, start_pos_x: int, start_pos_z):
+        # already generated
+        if self.world.chunk_exists(start_pos_x//16, start_pos_z//16):
+            return
+
         if self._level_type == "flat":
             for y in range(256):
                 for x in range(16):

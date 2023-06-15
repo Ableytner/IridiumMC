@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.iridium_server import IridiumServer
+from core import server_provider
 from dataclass.position import Position
 from blocks.air import Air
 from blocks.block import Block
@@ -16,13 +17,13 @@ class Chunk():
     blocks: dict[int, Block|None] = field(default_factory=lambda: {})
 
     def set_block(self, pos: Position, block: Block) -> None:
-        self.blocks[self._pos_to_int(pos)] = block
-    
+        self.blocks[self._pos_to_encstr(pos)] = block
+
     def get_block(self, pos: Position) -> Block:
-        block_pos = self._pos_to_int(pos)
+        block_pos = self._pos_to_encstr(pos)
         if not block_pos in self.blocks.keys():
             return Air()
-        return self.blocks[self._pos_to_int(pos)]
+        return self.blocks[self._pos_to_encstr(pos)]
 
     def to_packet_data(self) -> tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
         block_types = []
@@ -61,14 +62,12 @@ class Chunk():
 
         return (block_type, block_metadata, block_light, sky_light, add, biome)
 
-    def _pos_to_int(self, pos: Position) -> int:
-        return ((pos.x << 8) + (pos.y << 4) + pos.z)
+    def _pos_to_encstr(self, pos: Position) -> str:
+        return f"{pos.x}|{pos.y}|{pos.z}"
 
-    def _int_to_pos(self, value: int) -> Position:
-        x = value >> 8
-        y = (value - (x << 8)) >> 4
-        z = value - ((x << 8) + (y << 4))
-        return Position(x, y, z)
+    def _encstr_to_pos(self, value: str) -> Position:
+        x, y, z = value.split("|")
+        return Position(int(x), int(y), int(z))
 
 @dataclass
 class ChunkColumn():
@@ -116,7 +115,6 @@ class ChunkColumn():
 
 @dataclass
 class World():
-    server: "IridiumServer"
     dim_id: int
     chunk_columns: dict[int, dict[int, ChunkColumn|None]] = field(default_factory=lambda: defaultdict(dict))
 
@@ -133,7 +131,7 @@ class World():
 
     def to_packet_data(self, chunk_x: int, chunk_z: int):
         if not self.chunk_exists(chunk_x, chunk_z):
-            self.server.generate_chunk(chunk_x*16, chunk_z*16)
+            server_provider.get().generate_chunk(chunk_x*16, chunk_z*16)
         return self.chunk_columns[chunk_x][chunk_z].to_packet_data(chunk_x, chunk_z)
 
     def chunk_exists(self, chunk_x: int, chunk_z: int) -> bool:
